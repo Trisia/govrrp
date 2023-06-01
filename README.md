@@ -4,7 +4,11 @@
 
 > - 致谢 [napw](https://github.com/napw) forked from [github.com/napw/VRRP-go](https://github.com/napw/VRRP-go)。
 
-Go实现的VRRP协议（V3），协议详见 [RFC 5798](https://tools.ietf.org/html/rfc5798)。
+Go实现的 **V**irtual **R**outer **R**edundancy **P**rotocol (VRRP) 协议（V3），协议详见 [RFC 5798](https://tools.ietf.org/html/rfc5798)。
+
+VRRP协议用于路由器的冗余，协议通过组播的方式定期发送“心跳” 通知同组节点，组内各节点在心跳丢失后根据协议实现节点的选举。
+
+注意：虚拟IP通常使用 ARP协议中的Gratuitous ARP来实现，由主节点定期发出。
 
 ## 快速开始
 
