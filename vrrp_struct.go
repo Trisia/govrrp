@@ -1,9 +1,10 @@
-package VRRP
+package govrrp
 
 import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"unsafe"
 )
 
@@ -98,7 +99,24 @@ func (packet *VRRPPacket) AddIPvXAddr(version byte, ip net.IP) {
 		}
 		packet.setIPvXAddrCount(packet.GetIPvXAddrCount() + 1)
 	default:
-		panic("VRRPPacket.AddIPvXAddr: only support IPv4 and IPv6 address")
+		GLoger.Printf(INFO, "VRRPPacket.AddIPvXAddr: only support IPv4 and IPv6 address")
+	}
+}
+
+func (packet *VRRPPacket) AddIPAddr(ip netip.Addr) {
+	if ip.Is4() {
+		packet.IPAddress = append(packet.IPAddress, ip.As4())
+		packet.setIPvXAddrCount(packet.GetIPvXAddrCount() + 1)
+	} else if ip.Is6() {
+		a16 := ip.As16()
+		for index := 0; index < 4; index++ {
+			packet.IPAddress = append(packet.IPAddress, [4]byte{
+				a16[index*4+0], a16[index*4+1], a16[index*4+2], a16[index*4+3],
+			})
+		}
+		packet.setIPvXAddrCount(packet.GetIPvXAddrCount() + 1)
+	} else {
+		GLoger.Printf(INFO, "VRRPPacket.AddIPvXAddr: only support IPv4 and IPv6 address")
 	}
 }
 

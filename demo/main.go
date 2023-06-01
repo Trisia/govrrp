@@ -1,9 +1,9 @@
-package main
+package demo
 
 import (
-	"VRRP/VRRP"
 	"flag"
 	"fmt"
+	"github.com/Trisia/govrrp"
 	"time"
 )
 
@@ -19,15 +19,15 @@ func init() {
 
 func main() {
 	flag.Parse()
-	var vr = VRRP.NewVirtualRouter(byte(VRID), "ens33", false, VRRP.IPv4)
+	var vr = govrrp.NewVirtualRouter(byte(VRID), "ens33", false, govrrp.IPv4)
 	vr.SetPriorityAndMasterAdvInterval(byte(Priority), time.Millisecond*800)
-	vr.Enroll(VRRP.Backup2Master, func() {
+	vr.Enroll(govrrp.Backup2Master, func() {
 		fmt.Println("init to master")
 	})
-	vr.Enroll(VRRP.Master2Init, func() {
+	vr.Enroll(govrrp.Master2Init, func() {
 		fmt.Println("master to init")
 	})
-	vr.Enroll(VRRP.Master2Backup, func() {
+	vr.Enroll(govrrp.Master2Backup, func() {
 		fmt.Println("master to backup")
 	})
 	go func() {
@@ -35,5 +35,4 @@ func main() {
 		vr.Stop()
 	}()
 	vr.StartWithEventSelector()
-
 }

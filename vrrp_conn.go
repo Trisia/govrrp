@@ -1,12 +1,10 @@
-package VRRP
+package govrrp
 
 import (
-	"VRRP/logger"
 	"fmt"
 	"github.com/mdlayher/arp"
 	"github.com/mdlayher/ndp"
 	"net"
-
 	"syscall"
 	"time"
 )
@@ -29,25 +27,25 @@ type IPv6AddrAnnouncer struct {
 }
 
 func NewIPIPv6AddrAnnouncer(nif *net.Interface) *IPv6AddrAnnouncer {
-	var con, ip, errOfMakeNDPCon = ndp.Dial(nif, ndp.LinkLocal)
+	var con, ip, errOfMakeNDPCon = ndp.Listen(nif, ndp.LinkLocal)
 	if errOfMakeNDPCon != nil {
-		logger.GLoger.Printf(logger.FATAL, "NewIPv6AddrAnnouncer: %v", errOfMakeNDPCon)
+		GLoger.Printf(FATAL, "NewIPv6AddrAnnouncer: %v", errOfMakeNDPCon)
 	}
-	logger.GLoger.Printf(logger.INFO, "NDP client initialized, working on %v, source IP %v", nif.Name, ip)
+	GLoger.Printf(INFO, "NDP client initialized, working on %v, source IP %v", nif.Name, ip)
 	return &IPv6AddrAnnouncer{con: con}
 }
 
 func (nd *IPv6AddrAnnouncer) AnnounceAll(vr *VirtualRouter) error {
 	for key := range vr.protectedIPaddrs {
-		var multicastgroup, errOfParseMulticastGroup = ndp.SolicitedNodeMulticast(net.IP(key[:]))
+		var multicastgroup, errOfParseMulticastGroup = ndp.SolicitedNodeMulticast(key)
 		if errOfParseMulticastGroup != nil {
-			logger.GLoger.Printf(logger.ERROR, "IPv6AddrAnnouncer.AnnounceAll: %v", errOfParseMulticastGroup)
+			GLoger.Printf(ERROR, "IPv6AddrAnnouncer.AnnounceAll: %v", errOfParseMulticastGroup)
 			return errOfParseMulticastGroup
 		} else {
 			//send unsolicited NeighborAdvertisement to refresh link layer address cache
 			var msg = &ndp.NeighborAdvertisement{
 				Override:      true,
-				TargetAddress: net.IP(key[:]),
+				TargetAddress: key,
 				Options: []ndp.Option{
 					&ndp.LinkLayerAddress{
 						Direction: ndp.Source,
@@ -56,10 +54,10 @@ func (nd *IPv6AddrAnnouncer) AnnounceAll(vr *VirtualRouter) error {
 				},
 			}
 			if errOfWrite := nd.con.WriteTo(msg, nil, multicastgroup); errOfWrite != nil {
-				logger.GLoger.Printf(logger.ERROR, "IPv6AddrAnnouncer.AnnounceAll: %v", errOfWrite)
+				GLoger.Printf(ERROR, "IPv6AddrAnnouncer.AnnounceAll: %v", errOfWrite)
 				return errOfWrite
 			} else {
-				logger.GLoger.Printf(logger.INFO, "send unsolicited neighbor advertisement for %v", net.IP(key[:]))
+				GLoger.Printf(INFO, "send unsolicited neighbor advertisement for %s", key.String())
 			}
 		}
 
@@ -68,7 +66,7 @@ func (nd *IPv6AddrAnnouncer) AnnounceAll(vr *VirtualRouter) error {
 	return nil
 }
 
-//makeGratuitousPacket make gratuitous ARP packet with out payload
+// makeGratuitousPacket make gratuitous ARP packet with out payload
 func (ar *IPv4AddrAnnouncer) makeGratuitousPacket() *arp.Packet {
 	var packet arp.Packet
 	packet.HardwareType = 1      //ethernet10m
@@ -79,7 +77,7 @@ func (ar *IPv4AddrAnnouncer) makeGratuitousPacket() *arp.Packet {
 	return &packet
 }
 
-//AnnounceAll send gratuitous ARP response for all protected IPv4 addresses
+// AnnounceAll send gratuitous ARP response for all protected IPv4 addresses
 func (ar *IPv4AddrAnnouncer) AnnounceAll(vr *VirtualRouter) error {
 	if errofSetDealLine := ar.ARPClient.SetWriteDeadline(time.Now().Add(500 * time.Microsecond)); errofSetDealLine != nil {
 		return fmt.Errorf("IPv4AddrAnnouncer.AnnounceAll: %v", errofSetDealLine)
@@ -87,10 +85,10 @@ func (ar *IPv4AddrAnnouncer) AnnounceAll(vr *VirtualRouter) error {
 	var packet = ar.makeGratuitousPacket()
 	for k := range vr.protectedIPaddrs {
 		packet.SenderHardwareAddr = vr.netInterface.HardwareAddr
-		packet.SenderIP = net.IP(k[:]).To4()
+		packet.SenderIP = k
 		packet.TargetHardwareAddr = BaordcastHADDR
-		packet.TargetIP = net.IP(k[:]).To4()
-		logger.GLoger.Printf(logger.INFO, "send gratuitous arp for %v", net.IP(k[:]))
+		packet.TargetIP = k
+		GLoger.Printf(INFO, "send gratuitous arp for %s", k.String())
 		if errofsendarp := ar.ARPClient.WriteTo(packet, BaordcastHADDR); errofsendarp != nil {
 			return fmt.Errorf("IPv4AddrAnnouncer.AnnounceAll: %v", errofsendarp)
 		}
@@ -102,10 +100,9 @@ func NewIPv4AddrAnnouncer(nif *net.Interface) *IPv4AddrAnnouncer {
 	if aar, errofDialARP := arp.Dial(nif); errofDialARP != nil {
 		panic(errofDialARP)
 	} else {
-		logger.GLoger.Printf(logger.DEBUG, "IPv4 addresses announcer created")
+		GLoger.Printf(DEBUG, "IPv4 addresses announcer created")
 		return &IPv4AddrAnnouncer{ARPClient: aar}
 	}
-
 }
 
 type IPv4Con struct {
@@ -180,7 +177,7 @@ func ipConnection(local, remote net.IP) (*net.IPConn, error) {
 		}
 
 	}
-	logger.GLoger.Printf(logger.INFO, "IP virtual connection established %v ==> %v", local, remote)
+	GLoger.Printf(INFO, "IP virtual connection established %v ==> %v", local, remote)
 	return conn, nil
 }
 
@@ -222,7 +219,7 @@ func joinIPv6MulticastGroup(con *net.IPConn, local, remote net.IP) error {
 	if errOfSetMreq := syscall.SetsockoptIPv6Mreq(int(fd.Fd()), syscall.IPPROTO_IPV6, syscall.IPV6_JOIN_GROUP, mreq); errOfSetMreq != nil {
 		return fmt.Errorf("joinIPv6MulticastGroup: %v", errOfSetMreq)
 	}
-	logger.GLoger.Printf(logger.INFO, "Join IPv6 multicast group %v on %v", remote, IF.Name)
+	GLoger.Printf(INFO, "Join IPv6 multicast group %v on %v", remote, IF.Name)
 	return nil
 }
 

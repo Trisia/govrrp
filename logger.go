@@ -1,10 +1,19 @@
-package logger
+package govrrp
 
 import (
 	"fmt"
 	"io"
 	"log"
 	"os"
+)
+
+type LogLevel int
+
+const (
+	DEBUG LogLevel = iota
+	INFO
+	ERROR
+	FATAL
 )
 
 type Logger struct {
