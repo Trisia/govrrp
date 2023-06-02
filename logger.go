@@ -52,9 +52,10 @@ func NewLogger(o *io.Writer) *Logger {
 	}
 }
 
-var GLoger *Logger
+var logger *Logger
 
 func init() {
-	GLoger = NewLogger(nil)
-	GLoger.SetLevel(INFO)
+	logger = NewLogger(nil)
+	logger.SetLevel(INFO)
+	logger.SetPrefix("[govrrp] ")
 }

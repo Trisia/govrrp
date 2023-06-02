@@ -71,8 +71,8 @@ func (e EVENT) String() string {
 	}
 }
 
-const PACKETQUEUESIZE = 1000
-const EVENTCHANNELSIZE = 1
+const PACKET_QUEUE_SIZE = 1000
+const EVENT_CHANNEL_SIZE = 1
 
 type transition int
 
@@ -104,7 +104,7 @@ const (
 	Backup2Init
 )
 
-var (
+const (
 	defaultPreempt                    = true
 	defaultPriority              byte = 100
 	defaultAdvertisementInterval      = 1 * time.Second

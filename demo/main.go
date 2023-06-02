@@ -1,9 +1,9 @@
-package demo
+package main
 
 import (
 	"flag"
-	"fmt"
 	"github.com/Trisia/govrrp"
+	"log"
 	"time"
 )
 
@@ -19,16 +19,19 @@ func init() {
 
 func main() {
 	flag.Parse()
-	var vr = govrrp.NewVirtualRouter(byte(VRID), "ens33", false, govrrp.IPv4)
+	vr, err := govrrp.NewVirtualRouter(byte(VRID), "ens33", false, govrrp.IPv4)
+	if err != nil {
+		log.Fatal(err)
+	}
 	vr.SetPriorityAndMasterAdvInterval(byte(Priority), time.Millisecond*800)
 	vr.Enroll(govrrp.Backup2Master, func() {
-		fmt.Println("init to master")
+		log.Println("init to master")
 	})
 	vr.Enroll(govrrp.Master2Init, func() {
-		fmt.Println("master to init")
+		log.Println("master to init")
 	})
 	vr.Enroll(govrrp.Master2Backup, func() {
-		fmt.Println("master to backup")
+		log.Println("master to backup")
 	})
 	go func() {
 		time.Sleep(time.Minute * 5)

@@ -131,7 +131,7 @@ func (packet *VRRPPacket) AddIPvXAddr(version byte, ip net.IP) {
 		}
 		packet.setIPvXAddrCount(packet.GetIPvXAddrCount() + 1)
 	default:
-		GLoger.Printf(INFO, "VRRPPacket.AddIPvXAddr: only support IPv4 and IPv6 address")
+		logger.Printf(INFO, "VRRPPacket.AddIPvXAddr: only support IPv4 and IPv6 address")
 	}
 }
 
@@ -149,7 +149,7 @@ func (packet *VRRPPacket) AddIPAddr(ip netip.Addr) {
 		}
 		packet.setIPvXAddrCount(packet.GetIPvXAddrCount() + 1)
 	} else {
-		GLoger.Printf(INFO, "VRRPPacket.AddIPvXAddr: only support IPv4 and IPv6 address")
+		logger.Printf(INFO, "VRRPPacket.AddIPvXAddr: only support IPv4 and IPv6 address")
 	}
 }
 
@@ -188,7 +188,13 @@ func (packet *VRRPPacket) GetPriority() byte {
 	return packet.Header[2]
 }
 
-// SetPriority 设置 优先级 0~255,255 最高优先
+// SetPriority 设置 优先级 0~255 最高优先
+//
+// 拥有与虚拟路由器关联的IPvX地址的VRRP路由器的优先级值必须为255（十进制）。
+//
+// 备份虚拟路由器的VRRP路由器必须使用1-254（十进制）之间的优先级值。备份虚拟路由器的VRRP路由器的默认优先级为 100 （十进制） 。
+//
+// 优先级值0具有特殊意义，表示当前主机已停止参与VRRP。这用于触发备份路由器快速过渡到主路由器，而无需等待当前主路由器超时。
 func (packet *VRRPPacket) SetPriority(Priority byte) {
 	packet.Header[2] = Priority
 }
@@ -203,12 +209,12 @@ func (packet *VRRPPacket) setIPvXAddrCount(count byte) {
 }
 
 // GetAdvertisementInterval 获取 最大播发间隔
-// 12-bit的字段，用于表示2条VRRP消息发送的间隔时间，单位为秒。
+// 12-bit的字段，用于表示2条VRRP消息发送的间隔时间，单位为 厘秒， 100 厘秒 = 1 秒。
 func (packet *VRRPPacket) GetAdvertisementInterval() uint16 {
 	return uint16(packet.Header[4]&0x0F)<<8 | uint16(packet.Header[5])
 }
 
-// SetAdvertisementInterval 设置 最大播发间隔，单位秒。
+// SetAdvertisementInterval 设置 最大播发间隔，单位厘秒， 100 厘秒 = 1 秒。
 func (packet *VRRPPacket) SetAdvertisementInterval(interval uint16) {
 	packet.Header[4] = (packet.Header[4] & 0xF0) | byte((interval>>8)&0x0F)
 	packet.Header[5] = byte(interval)
