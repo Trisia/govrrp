@@ -86,10 +86,10 @@ func (ar *IPv4AddrAnnouncer) AnnounceAll(vr *VirtualRouter) error {
 	for k := range vr.protectedIPaddrs {
 		packet.SenderHardwareAddr = vr.netInterface.HardwareAddr
 		packet.SenderIP = k
-		packet.TargetHardwareAddr = BaordcastHADDR
+		packet.TargetHardwareAddr = BroadcastHADAR
 		packet.TargetIP = k
 		GLoger.Printf(INFO, "send gratuitous arp for %s", k.String())
-		if errofsendarp := ar.ARPClient.WriteTo(packet, BaordcastHADDR); errofsendarp != nil {
+		if errofsendarp := ar.ARPClient.WriteTo(packet, BroadcastHADAR); errofsendarp != nil {
 			return fmt.Errorf("IPv4AddrAnnouncer.AnnounceAll: %v", errofsendarp)
 		}
 	}
