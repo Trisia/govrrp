@@ -292,3 +292,8 @@ func (packet *VRRPPacket) ToBytes() []byte {
 	}
 	return payload
 }
+
+// PacketSize 当前报文的长度
+func (packet *VRRPPacket) PacketSize() int {
+	return 8 + len(packet.IPAddress)*4
+}

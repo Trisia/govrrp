@@ -176,37 +176,39 @@ func (r *VirtualRouter) SetPreemptMode(flag bool) *VirtualRouter {
 	return r
 }
 
+// AddIPvXAddr 添加虚拟IP
 func (r *VirtualRouter) AddIPvXAddr(ip net.IP) {
-	key, _ := netip.AddrFromSlice(ip)
-	if _, ok := r.protectedIPaddrs[key]; ok {
-		logger.Printf(INFO, "VirtualRouter.AddIPvXAddr: add redundant IP addr %v", ip)
-	} else {
-		r.protectedIPaddrs[key] = true
+	key, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return
 	}
+	logger.Printf(INFO, "IP %v added", ip)
+	r.protectedIPaddrs[key] = true
 }
 
 // RemoveIPvXAddr 移除 虚拟路由的虚拟IP地址
 func (r *VirtualRouter) RemoveIPvXAddr(ip net.IP) {
 	key, _ := netip.AddrFromSlice(ip)
+	logger.Printf(INFO, "IP %v removed", ip)
 	if _, ok := r.protectedIPaddrs[key]; ok {
 		delete(r.protectedIPaddrs, key)
-		logger.Printf(INFO, "IP %v removed", ip)
-	} else {
-		logger.Printf(ERROR, "VirtualRouter.RemoveIPvXAddr: remove inexistent IP addr %v", ip)
 	}
 }
 
+// 虚拟路由器的 Master 发送 VRRP Advertisement 消息 (心跳消息)
 func (r *VirtualRouter) sendAdvertMessage() {
 	for k := range r.protectedIPaddrs {
 		logger.Printf(DEBUG, "send advert message of IP %s", k.String())
 	}
-	var x = r.assembleVRRPPacket()
-	if errOfWrite := r.vrrpConn.WriteMessage(x); errOfWrite != nil {
-		logger.Printf(ERROR, "VirtualRouter.WriteMessage: %v", errOfWrite)
+	// 根据构造VRRP消息
+	x := r.assembleVRRPPacket()
+	// 发送 VRRP Advertisement 消息
+	if err := r.vrrpConn.WriteMessage(x); err != nil {
+		logger.Printf(ERROR, "VirtualRouter.WriteMessage: %v", err)
 	}
 }
 
-// assembleVRRPPacket assemble VRRP advert packet
+// assembleVRRPPacket 根据当前的虚拟路由信息组装 VRRP Advertisement 消息
 func (r *VirtualRouter) assembleVRRPPacket() *VRRPPacket {
 
 	var packet VRRPPacket
@@ -218,6 +220,7 @@ func (r *VirtualRouter) assembleVRRPPacket() *VRRPPacket {
 	for k := range r.protectedIPaddrs {
 		packet.AddIPAddr(k)
 	}
+	// 构造伪首部，用于计算校验码
 	var pshdr PseudoHeader
 	pshdr.Protocol = VRRPIPProtocolNumber
 	if r.ipvX == IPv4 {
@@ -225,26 +228,27 @@ func (r *VirtualRouter) assembleVRRPPacket() *VRRPPacket {
 	} else {
 		pshdr.Daddr = VRRPMultiAddrIPv6
 	}
-	pshdr.Len = uint16(len(packet.ToBytes()))
+	pshdr.Len = uint16(packet.PacketSize())
 	pshdr.Saddr = r.preferredSourceIP
 	packet.SetCheckSum(&pshdr)
 	return &packet
 }
 
-// fetchVRRPPacket read VRRP packet from IP layer then push into Packet queue
-func (r *VirtualRouter) fetchVRRPPacket() {
+// fetchVRRPDaemon VRRP Advertisement 消息接收精灵，持续接收VRRP Advertisement 消息，收到的消息会被放入 packetQueue 队列中。
+func (r *VirtualRouter) fetchVRRPDaemon() {
 	for {
-		if packet, errofFetch := r.vrrpConn.ReadMessage(); errofFetch != nil {
-			logger.Printf(ERROR, "VirtualRouter.fetchVRRPPacket: %v", errofFetch)
-		} else {
-			if r.vrID == packet.GetVirtualRouterID() {
-				r.packetQueue <- packet
-			} else {
-				logger.Printf(ERROR, "VirtualRouter.fetchVRRPPacket: received a advertisement with different ID: %v", packet.GetVirtualRouterID())
-			}
-
+		packet, err := r.vrrpConn.ReadMessage()
+		if err != nil {
+			logger.Printf(ERROR, "VirtualRouter.fetchVRRPDaemon: %v", err)
+			continue
 		}
-		logger.Printf(DEBUG, "VirtualRouter.fetchVRRPPacket: received one advertisement")
+		if r.vrID == packet.GetVirtualRouterID() {
+			r.packetQueue <- packet
+		} else {
+			logger.Printf(ERROR, "VirtualRouter.fetchVRRPDaemon: received a advertisement with different ID: %v", packet.GetVirtualRouterID())
+		}
+
+		logger.Printf(DEBUG, "VirtualRouter.fetchVRRPDaemon: received one advertisement")
 	}
 }
 
@@ -579,7 +583,7 @@ func (r *VirtualRouter) eventSelector() {
 }
 
 func (r *VirtualRouter) StartWithEventLoop() {
-	go r.fetchVRRPPacket()
+	go r.fetchVRRPDaemon()
 	go func() {
 		r.eventChannel <- START
 	}()
@@ -587,7 +591,7 @@ func (r *VirtualRouter) StartWithEventLoop() {
 }
 
 func (r *VirtualRouter) StartWithEventSelector() {
-	go r.fetchVRRPPacket()
+	go r.fetchVRRPDaemon()
 	go func() {
 		r.eventChannel <- START
 	}()
