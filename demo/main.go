@@ -37,5 +37,5 @@ func main() {
 		time.Sleep(time.Minute * 5)
 		vr.Stop()
 	}()
-	vr.StartWithEventSelector()
+	vr.Start()
 }
