@@ -13,8 +13,8 @@ var (
 )
 
 func init() {
-	flag.IntVar(&VRID, "vrid", 233, "virtual router ID")
-	flag.IntVar(&Priority, "pri", 100, "router priority")
+	flag.IntVar(&VRID, "vrid", 233, "虚拟路由ID (1~255)")
+	flag.IntVar(&Priority, "pri", 100, "虚拟路由器优先级")
 }
 
 func main() {
@@ -24,13 +24,13 @@ func main() {
 		log.Fatal(err)
 	}
 	vr.SetPriorityAndMasterAdvInterval(byte(Priority), time.Millisecond*800)
-	vr.Enroll(govrrp.Backup2Master, func() {
+	vr.AddEventListener(govrrp.Backup2Master, func() {
 		log.Println("init to master")
 	})
-	vr.Enroll(govrrp.Master2Init, func() {
+	vr.AddEventListener(govrrp.Master2Init, func() {
 		log.Println("master to init")
 	})
-	vr.Enroll(govrrp.Master2Backup, func() {
+	vr.AddEventListener(govrrp.Master2Backup, func() {
 		log.Println("master to backup")
 	})
 	go func() {

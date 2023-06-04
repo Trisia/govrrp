@@ -74,6 +74,7 @@ func (e EVENT) String() string {
 const PACKET_QUEUE_SIZE = 1000
 const EVENT_CHANNEL_SIZE = 1
 
+// transition 状态切换类型
 type transition int
 
 func (t transition) String() string {

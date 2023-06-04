@@ -300,17 +300,6 @@ func (r *VirtualRouter) resetMasterDownTimerToSkewTime() {
 	r.masterDownTimer.Reset(time.Duration(r.skewTime*10) * time.Millisecond)
 }
 
-func (r *VirtualRouter) Enroll(transition2 transition, handler func()) bool {
-	if _, ok := r.transitionHandler[transition2]; ok {
-		logger.Printf(INFO, fmt.Sprintf("VirtualRouter.Enroll(): handler of transition [%s] overwrited", transition2))
-		r.transitionHandler[transition2] = handler
-		return true
-	}
-	logger.Printf(INFO, fmt.Sprintf("VirtualRouter.Enroll(): handler of transition [%s] enrolled", transition2))
-	r.transitionHandler[transition2] = handler
-	return false
-}
-
 // 当状态机状态发生变更时，调用对应的处理函数
 func (r *VirtualRouter) stateChanged(t transition) {
 	if work, ok := r.transitionHandler[t]; ok && work != nil {
@@ -336,8 +325,193 @@ func largerThan(ip1, ip2 net.IP) bool {
 	return false
 }
 
-//// eventLoop VRRP event loop to handle various triggered events
-//func (r *VirtualRouter) eventLoop() {
+// stateMachine 状态机
+//
+// RFC 5798 6.3. State Transition Diagram
+//
+//	                   +---------------+
+//	        +--------->|               |<-------------+
+//	        |          |  Initialize   |              |
+//	        |   +------|               |----------+   |
+//	        |   |      +---------------+          |   |
+//	        |   |                                 |   |
+//	        |   V                                 V   |
+//	+---------------+                       +---------------+
+//	|               |---------------------->|               |
+//	|    Master     |                       |    Backup     |
+//	|               |<----------------------|               |
+//	+---------------+                       +---------------+
+func (r *VirtualRouter) stateMachine() {
+	for {
+		switch r.state {
+		case INIT:
+
+			select {
+			case event := <-r.eventChannel:
+				if event == START {
+					logger.Printf(INFO, "event %v received", event)
+					if r.priority == 255 || r.owner {
+						logger.Printf(INFO, "enter owner mode")
+						r.sendAdvertMessage()
+						if err := r.addrAnnouncer.AnnounceAll(r); err != nil {
+							logger.Printf(ERROR, "VirtualRouter.EventLoop: %v", err)
+						}
+						// 设置广播定时器
+						r.makeAdvertTicker()
+
+						logger.Printf(INFO, "enter MASTER state")
+						r.state = MASTER
+						r.stateChanged(Init2Master)
+					} else {
+						logger.Printf(INFO, "VR is not the owner of protected IP addresses")
+						r.setMasterAdvInterval(r.advertisementInterval)
+						// set up master down timer
+						r.makeMasterDownTimer()
+						logger.Printf(DEBUG, "enter BACKUP state")
+						r.state = BACKUP
+						r.stateChanged(Init2Backup)
+					}
+				} else if event == SHUTDOWN {
+					// 一般来说不应该收到 SHUTDOWN 事件
+					logger.Printf(INFO, "SHUTDOWN event received virtual route [%d] will be close.", r.vrID)
+					return
+				}
+			}
+
+		case MASTER:
+
+			select {
+			case event := <-r.eventChannel:
+				// 收到 shutdown 事件
+				if event == SHUTDOWN {
+					// 关闭心跳包定时器
+					r.stopAdvertTicker()
+					// 设置优先级为 0（表示让渡主节点），并广播发送消息
+					var priority = r.priority
+					r.setPriority(0)
+					r.sendAdvertMessage()
+
+					r.setPriority(priority)
+					// 进入初始化状态
+					r.state = INIT
+					r.stateChanged(Master2Init)
+					logger.Printf(INFO, "SHUTDOWN event received virtual route [%d] will be close.", r.vrID)
+					return
+				}
+			case <-r.advertisementTicker.C:
+				// 心跳包定时器到期，发送心跳包
+				r.sendAdvertMessage()
+			case packet := <-r.packetQueue:
+				// 优先级比主节点高，或者 优先级相同但是源IP比主节点的优先源IP大
+				// 那么认为 收到了一个更高优先级的主节点的心跳包，主节点让渡
+				if packet.GetPriority() > r.priority ||
+					(packet.GetPriority() == r.priority && largerThan(packet.Pshdr.Saddr, r.preferredSourceIP)) {
+					// 停止心跳包定时器
+					r.stopAdvertTicker()
+					// 设置新的主节点心跳消息发送定时器
+					r.setMasterAdvInterval(packet.GetAdvertisementInterval())
+					// 初始化主节点下线倒计时
+					r.makeMasterDownTimer()
+					// 切换状态至备份节点
+					r.state = BACKUP
+					r.stateChanged(Master2Backup)
+				} else {
+					// 忽略优先级低的所有消息
+				}
+			}
+
+		case BACKUP:
+
+			select {
+			case event := <-r.eventChannel:
+
+				if event == SHUTDOWN {
+					// 关闭主节点下线倒计时
+					r.stopMasterDownTimer()
+					// 设置状态为 初始化
+					r.state = INIT
+					r.stateChanged(Backup2Init)
+					logger.Printf(INFO, "SHUTDOWN event received virtual route [%d] will be close.", r.vrID)
+					return
+				}
+
+			case packet := <-r.packetQueue:
+				// 收到心跳包
+				if packet.GetPriority() == 0 {
+					// 若心跳包优先级为 0，那么认为主节点让渡，设置主节点下线倒计时为 Skew_Time，进入选举状态
+					logger.Printf(INFO, "received an advertisement with priority 0, transit into MASTER state", r.vrID)
+					// 设置 Master_Down_Timer 为 Skew_Time 进入选举状态
+					r.resetMasterDownTimerToSkewTime()
+				} else {
+					// 若为抢占模式，或者收到的心跳包优先级比备份节点优先级高，或者优先级相同但是源IP比备份节点的优先源IP大
+					// 那么认为收到了一个更高优先级的主节点的心跳包
+					// 重置主节点下线倒计时器
+					if r.preempt == false ||
+						packet.GetPriority() > r.priority ||
+						(packet.GetPriority() == r.priority && largerThan(packet.Pshdr.Saddr, r.preferredSourceIP)) {
+						// 重置主节点下线倒计时器
+						r.setMasterAdvInterval(packet.GetAdvertisementInterval())
+						r.resetMasterDownTimer()
+					}
+				}
+
+			case <-r.masterDownTimer.C:
+				// 主节点下线倒计时到期，进入选举状态
+				// 组播当前节点的心跳消息，表示当前节点想要成为主节点
+				r.sendAdvertMessage()
+				// 发送ARP消息告知广播域内的主机当前主机接管了虚拟路由器的IP地址
+				if err := r.addrAnnouncer.AnnounceAll(r); err != nil {
+					logger.Printf(ERROR, "VirtualRouter.EventLoop: %v", err)
+				}
+				// Set the Advertisement Timer to Advertisement interval
+				r.makeAdvertTicker()
+				// 进入主节点状态
+				r.state = MASTER
+				r.stateChanged(Backup2Master)
+			}
+		}
+
+	}
+}
+
+// AddEventListener 添加状态机事件监听器
+// typ: 状态变更类型
+// handler: 状态变更时的回调函数
+//
+// return: 如果已经存在该类型的监听器，那么返回 true，否则返回 false
+func (r *VirtualRouter) AddEventListener(typ transition, handler func()) bool {
+	_, exist := r.transitionHandler[typ]
+	if exist {
+		logger.Printf(INFO, fmt.Sprintf("VirtualRouter.AddEventListener(): handler of transition [%s] overwrited", typ))
+		r.transitionHandler[typ] = handler
+		return true
+	} else {
+		logger.Printf(INFO, fmt.Sprintf("VirtualRouter.AddEventListener(): handler of transition [%s] enrolled", typ))
+		r.transitionHandler[typ] = handler
+	}
+	return exist
+}
+
+// Start 启动虚拟路由器
+// 虚拟路由器启动后，将开始监听VRRP消息，根据状态机的状态，切换至不同的状态。
+func (r *VirtualRouter) Start() {
+	// 监听VRRP消息
+	go r.fetchVRRPDaemon()
+	go func() {
+		// 发送启动命令
+		r.eventChannel <- START
+	}()
+	// 启动状态机
+	r.stateMachine()
+}
+
+// Stop 停止虚拟路由器
+func (r *VirtualRouter) Stop() {
+	r.eventChannel <- SHUTDOWN
+}
+
+//// stateMachine VRRP event loop to handle various triggered events
+//func (r *VirtualRouter) stateMachine() {
 //	for {
 //		switch r.state {
 //		case INIT:
@@ -470,163 +644,5 @@ func largerThan(ip1, ip2 net.IP) bool {
 //	go func() {
 //		r.eventChannel <- START
 //	}()
-//	r.eventLoop()
+//	r.stateMachine()
 //}
-
-// eventHandler 事件处理器，基于事件触发状态机状态转换
-//
-// RFC 5798 6.3. State Transition Diagram
-//
-//	                   +---------------+
-//	        +--------->|               |<-------------+
-//	        |          |  Initialize   |              |
-//	        |   +------|               |----------+   |
-//	        |   |      +---------------+          |   |
-//	        |   |                                 |   |
-//	        |   V                                 V   |
-//	+---------------+                       +---------------+
-//	|               |---------------------->|               |
-//	|    Master     |                       |    Backup     |
-//	|               |<----------------------|               |
-//	+---------------+                       +---------------+
-func (r *VirtualRouter) eventHandler() {
-	for {
-		switch r.state {
-		case INIT:
-
-			select {
-			case event := <-r.eventChannel:
-				if event == START {
-					logger.Printf(INFO, "event %v received", event)
-					if r.priority == 255 || r.owner {
-						logger.Printf(INFO, "enter owner mode")
-						r.sendAdvertMessage()
-						if err := r.addrAnnouncer.AnnounceAll(r); err != nil {
-							logger.Printf(ERROR, "VirtualRouter.EventLoop: %v", err)
-						}
-						// 设置广播定时器
-						r.makeAdvertTicker()
-
-						logger.Printf(INFO, "enter MASTER state")
-						r.state = MASTER
-						r.stateChanged(Init2Master)
-					} else {
-						logger.Printf(INFO, "VR is not the owner of protected IP addresses")
-						r.setMasterAdvInterval(r.advertisementInterval)
-						// set up master down timer
-						r.makeMasterDownTimer()
-						logger.Printf(DEBUG, "enter BACKUP state")
-						r.state = BACKUP
-						r.stateChanged(Init2Backup)
-					}
-				}
-			}
-
-		case MASTER:
-
-			select {
-			case event := <-r.eventChannel:
-				// 收到 shutdown 事件
-				if event == SHUTDOWN {
-					// 关闭心跳包定时器
-					r.stopAdvertTicker()
-					// 设置优先级为 0（表示让渡主节点），并广播发送消息
-					var priority = r.priority
-					r.setPriority(0)
-					r.sendAdvertMessage()
-
-					r.setPriority(priority)
-					// 进入初始化状态
-					r.state = INIT
-					r.stateChanged(Master2Init)
-					logger.Printf(INFO, "event %v received", event)
-					// maybe we can break out the event loop
-				}
-			case <-r.advertisementTicker.C:
-				// 心跳包定时器到期，发送心跳包
-				r.sendAdvertMessage()
-			case packet := <-r.packetQueue:
-				// 优先级比主节点高，或者 优先级相同但是源IP比主节点的优先源IP大
-				// 那么认为 收到了一个更高优先级的主节点的心跳包，主节点让渡
-				if packet.GetPriority() > r.priority ||
-					(packet.GetPriority() == r.priority && largerThan(packet.Pshdr.Saddr, r.preferredSourceIP)) {
-					// 停止心跳包定时器
-					r.stopAdvertTicker()
-					// 设置新的主节点心跳消息发送定时器
-					r.setMasterAdvInterval(packet.GetAdvertisementInterval())
-					// 初始化主节点下线倒计时
-					r.makeMasterDownTimer()
-					// 切换状态至备份节点
-					r.state = BACKUP
-					r.stateChanged(Master2Backup)
-				} else {
-					// 忽略优先级低的所有消息
-				}
-			}
-
-		case BACKUP:
-
-			select {
-			case event := <-r.eventChannel:
-
-				if event == SHUTDOWN {
-					// 关闭主节点下线倒计时
-					r.stopMasterDownTimer()
-					// 设置状态为 初始化
-					r.state = INIT
-					r.stateChanged(Backup2Init)
-					logger.Printf(INFO, "event %s received", event)
-				}
-
-			case packet := <-r.packetQueue:
-				// 收到心跳包
-				if packet.GetPriority() == 0 {
-					// 若心跳包优先级为 0，那么认为主节点让渡，设置主节点下线倒计时为 Skew_Time，进入选举状态
-					logger.Printf(INFO, "received an advertisement with priority 0, transit into MASTER state", r.vrID)
-					// 设置 Master_Down_Timer 为 Skew_Time 进入选举状态
-					r.resetMasterDownTimerToSkewTime()
-				} else {
-					// 若为抢占模式，或者收到的心跳包优先级比备份节点优先级高，或者优先级相同但是源IP比备份节点的优先源IP大
-					// 那么认为收到了一个更高优先级的主节点的心跳包
-					// 重置主节点下线倒计时器
-					if r.preempt == false ||
-						packet.GetPriority() > r.priority ||
-						(packet.GetPriority() == r.priority && largerThan(packet.Pshdr.Saddr, r.preferredSourceIP)) {
-						// 重置主节点下线倒计时器
-						r.setMasterAdvInterval(packet.GetAdvertisementInterval())
-						r.resetMasterDownTimer()
-					}
-				}
-
-			case <-r.masterDownTimer.C:
-				// 主节点下线倒计时到期，进入选举状态
-				// 组播当前节点的心跳消息，表示当前节点想要成为主节点
-				r.sendAdvertMessage()
-				// 发送ARP消息告知广播域内的主机当前主机接管了虚拟路由器的IP地址
-				if err := r.addrAnnouncer.AnnounceAll(r); err != nil {
-					logger.Printf(ERROR, "VirtualRouter.EventLoop: %v", err)
-				}
-				// Set the Advertisement Timer to Advertisement interval
-				r.makeAdvertTicker()
-				// 进入主节点状态
-				r.state = MASTER
-				r.stateChanged(Backup2Master)
-			}
-		}
-
-	}
-}
-
-// Start 启动虚拟路由器
-// 虚拟路由器启动后，将开始监听VRRP消息，根据状态机的状态，切换至不同的状态。
-func (r *VirtualRouter) Start() {
-	go r.fetchVRRPDaemon()
-	go func() {
-		r.eventChannel <- START
-	}()
-	r.eventHandler()
-}
-
-func (r *VirtualRouter) Stop() {
-	r.eventChannel <- SHUTDOWN
-}
