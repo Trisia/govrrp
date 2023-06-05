@@ -259,7 +259,7 @@ func (r *VirtualRouter) fetchVRRPDaemon() {
 			logger.Printf(ERROR, "VirtualRouter.fetchVRRPDaemon: %v", err)
 			continue
 		}
-		// logger.Printf(INFO, "VRID [%d] received VRRP packet: \n\n%s\n", r.vrID, packet.String())
+		// logger.Printf(INFO, "VRID [%d] received VRRP packet: \n%s\n\n", r.vrID, packet.String())
 		if r.vrID != packet.GetVirtualRouterID() {
 			// 忽略不同 VRID 的 VRRP Advertisement 消息
 			continue
