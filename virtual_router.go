@@ -17,6 +17,7 @@ type VirtualRouter struct {
 	preempt bool // 是否开启 抢占模式（默认开启），开启后 优先级为高的路由器在启动后将抢占所有低优先级路由器。
 	owner   bool // 是否是主节点（是否是IP的拥有者）
 
+	// 为了防止与区域网内的其他VRRP路由器冲突，暂时不使用虚拟MAC地址，而是使用工作网口接口的MAC地址
 	virtualRouterMACAddressIPv4 net.HardwareAddr // IPv4 虚拟MAC地址
 	virtualRouterMACAddressIPv6 net.HardwareAddr // IPv6 虚拟MAC地址
 
@@ -120,7 +121,7 @@ func NewVirtualRouter(VRID byte, nif string, Owner bool, IPvX byte) (*VirtualRou
 			return nil, err
 		}
 	}
-	logger.Printf(INFO, "virtual router %v initialized, working on %v", VRID, nif)
+	logger.Printf(INFO, "VRID [%d] %v initialized, working on %v", VRID, nif)
 	return vr, nil
 }
 
@@ -183,27 +184,38 @@ func (r *VirtualRouter) AddIPvXAddr(ip net.IP) {
 	if (r.ipvX == IPv4 && ip.To4() == nil) || (r.ipvX == IPv6 && ip.To16() == nil) {
 		return
 	}
-	key, ok := netip.AddrFromSlice(ip)
+	var bin []byte
+	if r.ipvX == IPv4 {
+		bin = ip.To4()
+	} else {
+		bin = ip.To16()
+	}
+	key, ok := netip.AddrFromSlice(bin)
 	if !ok {
 		return
 	}
-	logger.Printf(INFO, "IP %v added", ip)
+	logger.Printf(INFO, "VRID [%d] VIP %v added", r.vrID, ip)
 	r.protectedIPaddrs[key] = true
 }
 
 // RemoveIPvXAddr 移除 虚拟路由的虚拟IP地址
 func (r *VirtualRouter) RemoveIPvXAddr(ip net.IP) {
 	key, _ := netip.AddrFromSlice(ip)
-	logger.Printf(INFO, "IP %v removed", ip)
+	logger.Printf(INFO, "VRID [%d] IP %v removed", r.vrID, ip)
 	if _, ok := r.protectedIPaddrs[key]; ok {
 		delete(r.protectedIPaddrs, key)
 	}
 }
 
+// VRID 返回 虚拟路由的 ID
+func (r *VirtualRouter) VRID() byte {
+	return r.vrID
+}
+
 // 虚拟路由器的 Master 发送 VRRP Advertisement 消息 (心跳消息)
 func (r *VirtualRouter) sendAdvertMessage() {
 	for k := range r.protectedIPaddrs {
-		logger.Printf(DEBUG, "send advert message of IP %s", k.String())
+		logger.Printf(DEBUG, "VRID [%d] send advert message of IP %s", r.vrID, k.String())
 	}
 	// 根据构造VRRP消息
 	x := r.assembleVRRPPacket()
@@ -247,13 +259,13 @@ func (r *VirtualRouter) fetchVRRPDaemon() {
 			logger.Printf(ERROR, "VirtualRouter.fetchVRRPDaemon: %v", err)
 			continue
 		}
-		if r.vrID == packet.GetVirtualRouterID() {
-			r.packetQueue <- packet
-		} else {
-			logger.Printf(ERROR, "VirtualRouter.fetchVRRPDaemon: received a advertisement with different ID: %v", packet.GetVirtualRouterID())
+		// logger.Printf(INFO, "VRID [%d] received VRRP packet: \n\n%s\n", r.vrID, packet.String())
+		if r.vrID != packet.GetVirtualRouterID() {
+			// 忽略不同 VRID 的 VRRP Advertisement 消息
+			continue
 		}
 
-		logger.Printf(DEBUG, "VirtualRouter.fetchVRRPDaemon: received one advertisement")
+		r.packetQueue <- packet
 	}
 }
 
@@ -278,13 +290,13 @@ func (r *VirtualRouter) makeMasterDownTimer() {
 
 // 停止 主节点下线倒计时器
 func (r *VirtualRouter) stopMasterDownTimer() {
-	logger.Printf(DEBUG, "master down timer stopped")
+	logger.Printf(DEBUG, "VRID [%d] master down timer stopped", r.vrID)
 	if !r.masterDownTimer.Stop() {
 		select {
 		case <-r.masterDownTimer.C:
 		default:
 		}
-		logger.Printf(DEBUG, "master down timer expired before we stop it, drain the channel")
+		logger.Printf(DEBUG, "VRID [%d] master down timer expired before we stop it, drain the channel", r.vrID)
 	}
 }
 
@@ -304,7 +316,7 @@ func (r *VirtualRouter) resetMasterDownTimerToSkewTime() {
 func (r *VirtualRouter) stateChanged(t transition) {
 	if work, ok := r.transitionHandler[t]; ok && work != nil {
 		work()
-		logger.Printf(INFO, fmt.Sprintf("handler of transition [%s] called", t))
+		logger.Printf(INFO, "VRID [%d] handler of transition [%s] called", r.vrID, t)
 	}
 	return
 }
@@ -349,9 +361,9 @@ func (r *VirtualRouter) stateMachine() {
 			select {
 			case event := <-r.eventChannel:
 				if event == START {
-					logger.Printf(INFO, "event %v received", event)
+					logger.Printf(INFO, "VRID [%d] event %v received", r.vrID, event)
 					if r.priority == 255 || r.owner {
-						logger.Printf(INFO, "enter owner mode")
+						logger.Printf(INFO, "VRID [%d] enter owner mode", r.vrID)
 						r.sendAdvertMessage()
 						if err := r.addrAnnouncer.AnnounceAll(r); err != nil {
 							logger.Printf(ERROR, "VirtualRouter.EventLoop: %v", err)
@@ -359,21 +371,21 @@ func (r *VirtualRouter) stateMachine() {
 						// 设置广播定时器
 						r.makeAdvertTicker()
 
-						logger.Printf(INFO, "enter MASTER state")
+						logger.Printf(INFO, "VRID [%d] enter MASTER state", r.vrID)
 						r.state = MASTER
 						r.stateChanged(Init2Master)
 					} else {
-						logger.Printf(INFO, "VR is not the owner of protected IP addresses")
+						logger.Printf(INFO, "VRID [%d] VR is not the owner of protected IP addresses", r.vrID)
 						r.setMasterAdvInterval(r.advertisementInterval)
 						// set up master down timer
 						r.makeMasterDownTimer()
-						logger.Printf(DEBUG, "enter BACKUP state")
+						logger.Printf(DEBUG, "VRID [%d] enter BACKUP state", r.vrID)
 						r.state = BACKUP
 						r.stateChanged(Init2Backup)
 					}
 				} else if event == SHUTDOWN {
 					// 一般来说不应该收到 SHUTDOWN 事件
-					logger.Printf(INFO, "SHUTDOWN event received virtual route [%d] will be close.", r.vrID)
+					logger.Printf(INFO, "VRID [%d] SHUTDOWN event received virtual will be close.", r.vrID)
 					return
 				}
 			}
@@ -395,7 +407,7 @@ func (r *VirtualRouter) stateMachine() {
 					// 进入初始化状态
 					r.state = INIT
 					r.stateChanged(Master2Init)
-					logger.Printf(INFO, "SHUTDOWN event received virtual route [%d] will be close.", r.vrID)
+					logger.Printf(INFO, "VRID [%d]  SHUTDOWN event received virtual route will be close.", r.vrID)
 					return
 				}
 			case <-r.advertisementTicker.C:
@@ -431,7 +443,7 @@ func (r *VirtualRouter) stateMachine() {
 					// 设置状态为 初始化
 					r.state = INIT
 					r.stateChanged(Backup2Init)
-					logger.Printf(INFO, "SHUTDOWN event received virtual route [%d] will be close.", r.vrID)
+					logger.Printf(INFO, "VRID [%d] SHUTDOWN event received virtual route will be close.", r.vrID)
 					return
 				}
 
@@ -439,7 +451,7 @@ func (r *VirtualRouter) stateMachine() {
 				// 收到心跳包
 				if packet.GetPriority() == 0 {
 					// 若心跳包优先级为 0，那么认为主节点让渡，设置主节点下线倒计时为 Skew_Time，进入选举状态
-					logger.Printf(INFO, "received an advertisement with priority 0, transit into MASTER state", r.vrID)
+					logger.Printf(INFO, "VRID [%d] received an advertisement with priority 0, transit into MASTER state", r.vrID)
 					// 设置 Master_Down_Timer 为 Skew_Time 进入选举状态
 					r.resetMasterDownTimerToSkewTime()
 				} else {
@@ -482,11 +494,9 @@ func (r *VirtualRouter) stateMachine() {
 func (r *VirtualRouter) AddEventListener(typ transition, handler func()) bool {
 	_, exist := r.transitionHandler[typ]
 	if exist {
-		logger.Printf(INFO, fmt.Sprintf("VirtualRouter.AddEventListener(): handler of transition [%s] overwrited", typ))
 		r.transitionHandler[typ] = handler
 		return true
 	} else {
-		logger.Printf(INFO, fmt.Sprintf("VirtualRouter.AddEventListener(): handler of transition [%s] enrolled", typ))
 		r.transitionHandler[typ] = handler
 	}
 	return exist
@@ -509,140 +519,3 @@ func (r *VirtualRouter) Start() {
 func (r *VirtualRouter) Stop() {
 	r.eventChannel <- SHUTDOWN
 }
-
-//// stateMachine VRRP event loop to handle various triggered events
-//func (r *VirtualRouter) stateMachine() {
-//	for {
-//		switch r.state {
-//		case INIT:
-//			select {
-//			case event := <-r.eventChannel:
-//				if event == START {
-//					logger.Printf(INFO, "event %v received", event)
-//					if r.priority == 255 || r.owner {
-//						logger.Printf(INFO, "enter owner mode")
-//						r.sendAdvertMessage()
-//						if errOfarp := r.addrAnnouncer.AnnounceAll(r); errOfarp != nil {
-//							logger.Printf(ERROR, "VirtualRouter.EventLoop: %v", errOfarp)
-//						}
-//						//set up advertisement timer
-//						r.makeAdvertTicker()
-//						logger.Printf(DEBUG, "enter MASTER state")
-//						r.state = MASTER
-//						r.stateChanged(Init2Master)
-//					} else {
-//						logger.Printf(INFO, "VR is not the owner of protected IP addresses")
-//						r.setMasterAdvInterval(r.advertisementInterval)
-//						//set up master down timer
-//						r.makeMasterDownTimer()
-//						logger.Printf(DEBUG, "enter BACKUP state")
-//						r.state = BACKUP
-//						r.stateChanged(Init2Backup)
-//					}
-//				}
-//			}
-//		case MASTER:
-//			//check if shutdown event received
-//			select {
-//			case event := <-r.eventChannel:
-//				if event == SHUTDOWN {
-//					//close advert timer
-//					r.stopAdvertTicker()
-//					//send advertisement with priority 0
-//					var priority = r.priority
-//					r.setPriority(0)
-//					r.sendAdvertMessage()
-//					r.setPriority(priority)
-//					//transition into INIT
-//					r.state = INIT
-//					r.stateChanged(Master2Init)
-//					logger.Printf(INFO, "event %v received", event)
-//					//maybe we can break out the event loop
-//				}
-//			case <-r.advertisementTicker.C: //check if advertisement timer fired
-//				r.sendAdvertMessage()
-//			default:
-//				//nothing to do, just break
-//			}
-//			//process incoming advertisement
-//			select {
-//			case packet := <-r.packetQueue:
-//				if packet.GetPriority() == 0 {
-//					//I don't think we should anything here
-//				} else {
-//					if packet.GetPriority() > r.priority || (packet.GetPriority() == r.priority && largerThan(packet.Pshdr.Saddr, r.preferredSourceIP)) {
-//
-//						//cancel Advertisement timer
-//						r.stopAdvertTicker()
-//						//set up master down timer
-//						r.setMasterAdvInterval(packet.GetAdvertisementInterval())
-//						r.makeMasterDownTimer()
-//						r.state = BACKUP
-//						r.stateChanged(Master2Backup)
-//					} else {
-//						//just discard this one
-//					}
-//				}
-//			default:
-//				//nothing to do
-//			}
-//		case BACKUP:
-//			select {
-//			case event := <-r.eventChannel:
-//				if event == SHUTDOWN {
-//					//close master down timer
-//					r.stopMasterDownTimer()
-//					//transition into INIT
-//					r.state = INIT
-//					r.stateChanged(Backup2Init)
-//					logger.Printf(INFO, "event %s received", event)
-//				}
-//			default:
-//			}
-//			//process incoming advertisement
-//			select {
-//			case packet := <-r.packetQueue:
-//				if packet.GetPriority() == 0 {
-//					logger.Printf(INFO, "received an advertisement with priority 0, transit into MASTER state", r.vrID)
-//					//Set the Master_Down_Timer to Skew_Time
-//					r.resetMasterDownTimerToSkewTime()
-//				} else {
-//					if r.preempt == false || packet.GetPriority() > r.priority || (packet.GetPriority() == r.priority && largerThan(packet.Pshdr.Saddr, r.preferredSourceIP)) {
-//						//reset master down timer
-//						r.setMasterAdvInterval(packet.GetAdvertisementInterval())
-//						r.resetMasterDownTimer()
-//					} else {
-//						//nothing to do, just discard this one
-//					}
-//				}
-//			default:
-//				//nothing to do
-//			}
-//			select {
-//			//Master_Down_Timer fired
-//			case <-r.masterDownTimer.C:
-//				// Send an ADVERTISEMENT
-//				r.sendAdvertMessage()
-//				if errOfARP := r.addrAnnouncer.AnnounceAll(r); errOfARP != nil {
-//					logger.Printf(ERROR, "VirtualRouter.EventLoop: %v", errOfARP)
-//				}
-//				//Set the Advertisement Timer to Advertisement interval
-//				r.makeAdvertTicker()
-//
-//				r.state = MASTER
-//				r.stateChanged(Backup2Master)
-//			default:
-//				//nothing to do
-//			}
-//
-//		}
-//	}
-//}
-//
-//func (r *VirtualRouter) StartWithEventLoop() {
-//	go r.fetchVRRPDaemon()
-//	go func() {
-//		r.eventChannel <- START
-//	}()
-//	r.stateMachine()
-//}

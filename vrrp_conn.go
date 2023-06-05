@@ -8,17 +8,19 @@ import (
 
 // VRRPMsgConnection IP层VRRP协议消息接口
 type VRRPMsgConnection interface {
+	// WriteMessage 发送VRRP消息
 	WriteMessage(*VRRPPacket) error
+	// ReadMessage 接收VRRP消息
 	ReadMessage() (*VRRPPacket, error)
 }
 
 // IPv4VRRPMsgCon IPv4的VRRP消息组播连接
 type IPv4VRRPMsgCon struct {
-	buffer     []byte
-	remote     net.IP
-	local      net.IP
-	SendCon    *net.IPConn
-	ReceiveCon *net.IPConn
+	buffer     []byte      // 接收缓冲区
+	remote     net.IP      // 发送IP数据包的目的地址
+	local      net.IP      // 发送IP数据包的源地址
+	SendCon    *net.IPConn // VRRP数据包 发送连接
+	ReceiveCon *net.IPConn // IP数据包 接收连接
 }
 
 // IPv6VRRPMsgCon IPv6的VRRP消息组播连接
@@ -107,8 +109,8 @@ func makeMulticastIPv4Conn(multi, local net.IP) (*net.IPConn, error) {
 		Multiaddr: [4]byte{multi[0], multi[1], multi[2], multi[3]},
 		Interface: [4]byte{local[0], local[1], local[2], local[3]},
 	}
-	if errSetMreq := syscall.SetsockoptIPMreq(int(fd.Fd()), syscall.IPPROTO_IP, syscall.IP_ADD_MEMBERSHIP, mreq); errSetMreq != nil {
-		return nil, fmt.Errorf("makeMulticastIPv4Conn: %v", errSetMreq)
+	if err = syscall.SetsockoptIPMreq(int(fd.Fd()), syscall.IPPROTO_IP, syscall.IP_ADD_MEMBERSHIP, mreq); err != nil {
+		return nil, fmt.Errorf("makeMulticastIPv4Conn: %v", err)
 	}
 	return conn, nil
 }
@@ -132,8 +134,8 @@ func joinIPv6MulticastGroup(ift *net.Interface, con *net.IPConn, local, remote n
 
 // NewIPv4VRRPMsgConn 创建的IPv4 VRRP虚拟连接
 // ift: 工作网口
-// src: IP数据包中源地址
-// dst: IP数据包中目的地址
+// src: IP数据包中源地址，应该为工作网口的IP地址
+// dst: IP数据包中目的地址，应该为组播地址 VRRPMultiAddrIPv4
 func NewIPv4VRRPMsgConn(ift *net.Interface, src, dst net.IP) (VRRPMsgConnection, error) {
 	sendConn, err := ipConnection(ift, src, dst)
 	if err != nil {
@@ -150,7 +152,6 @@ func NewIPv4VRRPMsgConn(ift *net.Interface, src, dst net.IP) (VRRPMsgConnection,
 		SendCon:    sendConn,
 		ReceiveCon: receiveConn,
 	}, nil
-
 }
 
 // WriteMessage 发送VRRP数据包
@@ -163,38 +164,47 @@ func (conn *IPv4VRRPMsgCon) WriteMessage(packet *VRRPPacket) error {
 
 // ReadMessage 读取VRRP数据包
 func (conn *IPv4VRRPMsgCon) ReadMessage() (*VRRPPacket, error) {
-	var n, errOfRead = conn.ReceiveCon.Read(conn.buffer)
-	if errOfRead != nil {
-		return nil, fmt.Errorf("IPv4VRRPMsgCon.ReadMessage: %v", errOfRead)
+	// 此处读取到的数据为 IP数据包
+	var n, err = conn.ReceiveCon.Read(conn.buffer)
+	if err != nil {
+		return nil, fmt.Errorf("IPv4VRRPMsgCon.ReadMessage: %v", err)
 	}
+	// IP数据包长度必须大于20字节
 	if n < 20 {
 		return nil, fmt.Errorf("IPv4VRRPMsgCon.ReadMessage: IP datagram lenght %v too small", n)
 	}
-	var hdrlen = (int(conn.buffer[0]) & 0x0f) << 2
+	// 获取 IPv4 头部长度
+	var hdrlen = (int(conn.buffer[0]) & 0x0F) << 2
 	if hdrlen > n {
-		return nil, fmt.Errorf("IPv4VRRPMsgCon.ReadMessage: the header length %v is lagger than total length %V", hdrlen, n)
+		return nil, fmt.Errorf("IPv4VRRPMsgCon.ReadMessage: the header length %v is lagger than total length %d", hdrlen, n)
 	}
+	// 检查 TTL 应该为 255 (see RFC5798 5.1.1.3. TTL)
 	if conn.buffer[8] != 255 {
 		return nil, fmt.Errorf("IPv4VRRPMsgCon.ReadMessage: the TTL of IP datagram carring VRRP advertisment must equal to 255")
 	}
-	if advertisement, errOfUnmarshal := FromBytes(IPv4, conn.buffer[hdrlen:n]); errOfUnmarshal != nil {
-		return nil, fmt.Errorf("IPv4VRRPMsgCon.ReadMessage: %v", errOfUnmarshal)
-	} else {
-		if VRRPVersion(advertisement.GetVersion()) != VRRPv3 {
-			return nil, fmt.Errorf("IPv4VRRPMsgCon.ReadMessage: received an advertisement with %s", VRRPVersion(advertisement.GetVersion()))
-		}
-		var pshdr PseudoHeader
-		pshdr.Saddr = net.IPv4(conn.buffer[12], conn.buffer[13], conn.buffer[14], conn.buffer[15]).To16()
-		pshdr.Daddr = net.IPv4(conn.buffer[16], conn.buffer[17], conn.buffer[18], conn.buffer[19]).To16()
-		pshdr.Protocol = VRRPIPProtocolNumber
-		pshdr.Len = uint16(n - hdrlen)
-		if !advertisement.ValidateCheckSum(&pshdr) {
-			return nil, fmt.Errorf("IPv4VRRPMsgCon.ReadMessage: validate the check sum of advertisement failed")
-		} else {
-			advertisement.Pshdr = &pshdr
-			return advertisement, nil
-		}
+	// 解析VRRP报文
+	advertisement, err := FromBytes(IPv4, conn.buffer[hdrlen:n])
+	if err != nil {
+		return nil, fmt.Errorf("IPv4VRRPMsgCon.ReadMessage: %v", err)
 	}
+
+	if advertisement.GetVersion() != byte(VRRPv3) {
+		return nil, fmt.Errorf("IPv4VRRPMsgCon.ReadMessage: received an advertisement with %s", VRRPVersion(advertisement.GetVersion()))
+	}
+
+	// 构造伪首部
+	var pshdr PseudoHeader
+	pshdr.Saddr = net.IPv4(conn.buffer[12], conn.buffer[13], conn.buffer[14], conn.buffer[15]).To16()
+	pshdr.Daddr = net.IPv4(conn.buffer[16], conn.buffer[17], conn.buffer[18], conn.buffer[19]).To16()
+	pshdr.Protocol = VRRPIPProtocolNumber
+	pshdr.Len = uint16(n - hdrlen)
+	// 校验校验码
+	if !advertisement.ValidateCheckSum(&pshdr) {
+		return nil, fmt.Errorf("IPv4VRRPMsgCon.ReadMessage: validate the check sum of advertisement failed")
+	}
+
+	advertisement.Pshdr = &pshdr
+	return advertisement, nil
 }
 
 // NewIPv6VRRPMsgCon 创建的IPv6 VRRP虚拟连接
@@ -229,9 +239,9 @@ func (con *IPv6VRRPMsgCon) ReadMessage() (*VRRPPacket, error) {
 	if errOfRead != nil {
 		return nil, fmt.Errorf("IPv6VRRPMsgCon.ReadMessage: %v", errOfRead)
 	}
-	var oobdata, errOfParseOOB = syscall.ParseSocketControlMessage(con.oob[:oobn])
-	if errOfParseOOB != nil {
-		return nil, fmt.Errorf("IPv6VRRPMsgCon.ReadMessage: %v", errOfParseOOB)
+	oobdata, err := syscall.ParseSocketControlMessage(con.oob[:oobn])
+	if err != nil {
+		return nil, fmt.Errorf("IPv6VRRPMsgCon.ReadMessage: %v", err)
 	}
 	var (
 		dst    net.IP
@@ -268,9 +278,9 @@ func (con *IPv6VRRPMsgCon) ReadMessage() (*VRRPPacket, error) {
 		Protocol: VRRPIPProtocolNumber,
 		Len:      uint16(buffern),
 	}
-	var advertisement, errOfUnmarshal = FromBytes(IPv6, con.buffer)
-	if errOfUnmarshal != nil {
-		return nil, fmt.Errorf("IPv6VRRPMsgCon.ReadMessage: %v", errOfUnmarshal)
+	advertisement, err := FromBytes(IPv6, con.buffer)
+	if err != nil {
+		return nil, fmt.Errorf("IPv6VRRPMsgCon.ReadMessage: %v", err)
 	}
 	if TTL != 255 {
 		return nil, fmt.Errorf("IPv6VRRPMsgCon.ReadMessage: invalid HOPLIMIT")
@@ -312,28 +322,3 @@ func interfacePreferIP(itf *net.Interface, IPvX byte) (net.IP, error) {
 	}
 	return nil, fmt.Errorf("interfacePreferIP: can not find valid IP addrs on %v", itf.Name)
 }
-
-//
-//func findInterfacebyIP(ip net.IP) (*net.Interface, error) {
-//	if itfs, errOfListInterface := net.Interfaces(); errOfListInterface != nil {
-//		return nil, fmt.Errorf("findInterfacebyIP: %v", errOfListInterface)
-//	} else {
-//		for index := range itfs {
-//			if addrs, errOfListAddrs := itfs[index].Addrs(); errOfListAddrs != nil {
-//				return nil, fmt.Errorf("findInterfacebyIP: %v", errOfListAddrs)
-//			} else {
-//				for index1 := range addrs {
-//					var ipaddr, _, errOfParseIP = net.ParseCIDR(addrs[index1].String())
-//					if errOfParseIP != nil {
-//						return nil, fmt.Errorf("findInterfacebyIP: %v", errOfParseIP)
-//					}
-//					if ipaddr.Equal(ip) {
-//						return &itfs[index], nil
-//					}
-//				}
-//			}
-//		}
-//	}
-//
-//	return nil, fmt.Errorf("findInterfacebyIP: can't find the corresponding interface of %v", ip)
-//}

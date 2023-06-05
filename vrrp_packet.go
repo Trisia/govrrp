@@ -41,6 +41,17 @@ type VRRPPacket struct {
 	Pshdr     *PseudoHeader // 伪头部，用于记录IP层信息
 }
 
+func (packet *VRRPPacket) String() string {
+	version := IPv4
+	if packet.Pshdr.Saddr.To4() == nil {
+		version = IPv6
+	}
+	return fmt.Sprintf(
+		"Version %d Virtual Rtr ID: %d Priority: %d Addr Count: %d Checksum: %02X IP Addresses: %+v",
+		packet.GetVersion(), packet.GetVirtualRouterID(), packet.GetPriority(), packet.GetIPvXAddrCount(), packet.GetCheckSum(),
+		packet.GetIPvXAddr(byte(version)))
+}
+
 // PseudoHeader 伪头部，用于记录IP层协议信息
 type PseudoHeader struct {
 	Saddr    net.IP // 源地址
