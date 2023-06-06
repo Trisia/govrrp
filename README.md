@@ -1,6 +1,9 @@
 # Go VRRP
 
-[![Documentation](https://godoc.org/github.com/Trisia/govrrp?status.svg)](https://pkg.go.dev/github.com/Trisia/govrrp) ![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/Trisia/govrrp) ![GitHub tag (latest SemVer)](https://img.shields.io/github/v/tag/Trisia/govrrp) 
+[![Github CI](https://github.com/Trisia/govrrp/actions/workflows/ci.yml/badge.svg)](https://github.com/Trisia/govrrp/actions/workflows/ci.yml)
+[![Documentation](https://godoc.org/github.com/Trisia/govrrp?status.svg)](https://godoc.org/github.com/Trisia/govrrp)
+[![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/Trisia/govrrp)](https://github.com/Trisia/govrrp/blob/master/go.mod)
+[![GitHub tag (latest SemVer)](https://img.shields.io/github/v/tag/Trisia/govrrp)](https://github.com/Trisia/govrrp/tags)
 
 > - 致谢 [napw](https://github.com/napw) forked from [github.com/napw/VRRP-go](https://github.com/napw/VRRP-go)。
 

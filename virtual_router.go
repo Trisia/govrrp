@@ -132,7 +132,7 @@ func NewVirtualRouter(VRID byte, nif string, Owner bool, IPvX byte) (*VirtualRou
 			return nil, err
 		}
 	}
-	logg.Printf("VRID [%d] %v initialized, working on %v", VRID, nif)
+	logg.Printf("VRID [%d] initialized, working on %s", VRID, nif)
 	return vr, nil
 }
 
