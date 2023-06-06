@@ -88,7 +88,7 @@ func ipConnection(ift *net.Interface, src, dst net.IP) (*net.IPConn, error) {
 			return nil, fmt.Errorf("ipConnection: %v", err)
 		}
 	}
-	logger.Printf(INFO, "IP virtual connection established %v ==> %v", src, dst)
+	logg.Printf("IP packet connection established %v ==> %v", src, dst)
 	return conn, nil
 }
 
@@ -128,7 +128,7 @@ func joinIPv6MulticastGroup(ift *net.Interface, con *net.IPConn, local, remote n
 	if errOfSetMreq := syscall.SetsockoptIPv6Mreq(int(fd.Fd()), syscall.IPPROTO_IPV6, syscall.IPV6_JOIN_GROUP, mreq); errOfSetMreq != nil {
 		return fmt.Errorf("joinIPv6MulticastGroup: %v", errOfSetMreq)
 	}
-	logger.Printf(INFO, "Join IPv6 multicast group %v on %v", remote, ift.Name)
+	logg.Printf("Join IPv6 multicast group %v on %v", remote, ift.Name)
 	return nil
 }
 

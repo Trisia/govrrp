@@ -142,7 +142,6 @@ func (packet *VRRPPacket) AddIPvXAddr(version byte, ip net.IP) {
 		}
 		packet.setIPvXAddrCount(packet.GetIPvXAddrCount() + 1)
 	default:
-		logger.Printf(INFO, "VRRPPacket.AddIPvXAddr: only support IPv4 and IPv6 address")
 	}
 }
 
@@ -159,8 +158,6 @@ func (packet *VRRPPacket) AddIPAddr(ip netip.Addr) {
 			})
 		}
 		packet.setIPvXAddrCount(packet.GetIPvXAddrCount() + 1)
-	} else {
-		logger.Printf(INFO, "VRRPPacket.AddIPvXAddr: only support IPv4 and IPv6 address")
 	}
 }
 

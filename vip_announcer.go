@@ -23,7 +23,7 @@ func NewIPIPv6AddrAnnouncer(nif *net.Interface) (*IPv6AddrAnnouncer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("IPv6AddrAnnouncer: %v", err)
 	}
-	logger.Printf(INFO, "NDP client initialized, working on %v, source IP %v", nif.Name, ip)
+	logg.Printf("NDP client initialized, working on %v, source IP %v", nif.Name, ip)
 	return &IPv6AddrAnnouncer{con: con}, nil
 }
 
@@ -32,7 +32,7 @@ func (nd *IPv6AddrAnnouncer) AnnounceAll(vr *VirtualRouter) error {
 	for key := range vr.protectedIPaddrs {
 		multicastgroup, err := ndp.SolicitedNodeMulticast(key)
 		if err != nil {
-			logger.Printf(ERROR, "IPv6AddrAnnouncer.AnnounceAll: %v", err)
+			// logg.Printf(ERROR, "IPv6AddrAnnouncer.AnnounceAll: %v", err)
 			return err
 		} else {
 			//send unsolicited NeighborAdvertisement to refresh link layer address cache
@@ -46,11 +46,11 @@ func (nd *IPv6AddrAnnouncer) AnnounceAll(vr *VirtualRouter) error {
 					},
 				},
 			}
-			if err := nd.con.WriteTo(msg, nil, multicastgroup); err != nil {
-				logger.Printf(ERROR, "IPv6AddrAnnouncer.AnnounceAll: %v", err)
+			if err = nd.con.WriteTo(msg, nil, multicastgroup); err != nil {
+				// logg.Printf(ERROR, "IPv6AddrAnnouncer.AnnounceAll: %v", err)
 				return err
 			} else {
-				logger.Printf(INFO, "send unsolicited neighbor advertisement for %s", key.String())
+				logg.Printf("send unsolicited neighbor advertisement for %s", key.String())
 			}
 		}
 	}
@@ -66,9 +66,9 @@ type IPv4AddrAnnouncer struct {
 // NewIPv4AddrAnnouncer 创建IPv4 Gratuitous ARP广播
 func NewIPv4AddrAnnouncer(nif *net.Interface) (*IPv4AddrAnnouncer, error) {
 	if aar, err := arp.Dial(nif); err != nil {
-		return nil, fmt.Errorf("IPv4AddrAnnouncer: %v", err)
+		return nil, err
 	} else {
-		logger.Printf(DEBUG, "IPv4 addresses announcer created")
+		// logg.Printf(DEBUG, "IPv4 addresses announcer created")
 		return &IPv4AddrAnnouncer{ARPClient: aar}, nil
 	}
 }
@@ -76,7 +76,7 @@ func NewIPv4AddrAnnouncer(nif *net.Interface) (*IPv4AddrAnnouncer, error) {
 // AnnounceAll 广播 gratuitous ARP response 包含所有的IPv4虚拟IP地址
 func (ar *IPv4AddrAnnouncer) AnnounceAll(vr *VirtualRouter) error {
 	if err := ar.ARPClient.SetWriteDeadline(time.Now().Add(500 * time.Microsecond)); err != nil {
-		return fmt.Errorf("IPv4AddrAnnouncer.AnnounceAll: %v", err)
+		return err
 	}
 
 	// 构造 gratuitous ARP response
@@ -92,7 +92,7 @@ func (ar *IPv4AddrAnnouncer) AnnounceAll(vr *VirtualRouter) error {
 		packet.SenderIP = k
 		packet.TargetHardwareAddr = BroadcastHADAR
 		packet.TargetIP = k
-		logger.Printf(INFO, "send gratuitous arp for %s", k.String())
+		logg.Printf("send gratuitous arp for %s", k.String())
 		if err := ar.ARPClient.WriteTo(&packet, BroadcastHADAR); err != nil {
 			return fmt.Errorf("IPv4AddrAnnouncer.AnnounceAll: %v", err)
 		}
