@@ -2,10 +2,21 @@ package govrrp
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"net/netip"
+	"os"
 	"time"
 )
+
+var logg = log.New(os.Stdout, "[govrrp] ", log.LstdFlags)
+
+// SetDefaultLogger 设置默认日志记录器
+func SetDefaultLogger(l *log.Logger) {
+	if l != nil {
+		logg = l
+	}
+}
 
 // VirtualRouter 虚拟路由器，实现了VRRP协议的状态机
 type VirtualRouter struct {
@@ -121,7 +132,7 @@ func NewVirtualRouter(VRID byte, nif string, Owner bool, IPvX byte) (*VirtualRou
 			return nil, err
 		}
 	}
-	logger.Printf(INFO, "VRID [%d] %v initialized, working on %v", VRID, nif)
+	logg.Printf("VRID [%d] %v initialized, working on %v", VRID, nif)
 	return vr, nil
 }
 
@@ -137,7 +148,7 @@ func (r *VirtualRouter) setPriority(Priority byte) *VirtualRouter {
 // SetAdvInterval 设置 VRRP消息发送间隔（心跳间隔），时间间隔不能小于 10 ms。
 func (r *VirtualRouter) SetAdvInterval(Interval time.Duration) *VirtualRouter {
 	if Interval < 10*time.Millisecond {
-		// logger.Printf(INFO, "interval can less than 10 ms")
+		// logg.Printf(INFO, "interval can less than 10 ms")
 		Interval = 10 * time.Millisecond
 	}
 	r.advertisementInterval = uint16(Interval / (10 * time.Millisecond))
@@ -194,14 +205,14 @@ func (r *VirtualRouter) AddIPvXAddr(ip net.IP) {
 	if !ok {
 		return
 	}
-	logger.Printf(INFO, "VRID [%d] VIP %v added", r.vrID, ip)
+	logg.Printf("VRID [%d] VIP %v added", r.vrID, ip)
 	r.protectedIPaddrs[key] = true
 }
 
 // RemoveIPvXAddr 移除 虚拟路由的虚拟IP地址
 func (r *VirtualRouter) RemoveIPvXAddr(ip net.IP) {
 	key, _ := netip.AddrFromSlice(ip)
-	logger.Printf(INFO, "VRID [%d] IP %v removed", r.vrID, ip)
+	logg.Printf("VRID [%d] IP %v removed", r.vrID, ip)
 	if _, ok := r.protectedIPaddrs[key]; ok {
 		delete(r.protectedIPaddrs, key)
 	}
@@ -214,14 +225,14 @@ func (r *VirtualRouter) VRID() byte {
 
 // 虚拟路由器的 Master 发送 VRRP Advertisement 消息 (心跳消息)
 func (r *VirtualRouter) sendAdvertMessage() {
-	for k := range r.protectedIPaddrs {
-		logger.Printf(DEBUG, "VRID [%d] send advert message of IP %s", r.vrID, k.String())
-	}
+	//for k := range r.protectedIPaddrs {
+	//	logg.Printf("VRID [%d] send advert message of IP %s", r.vrID, k.String())
+	//}
 	// 根据构造VRRP消息
 	x := r.assembleVRRPPacket()
 	// 发送 VRRP Advertisement 消息
 	if err := r.vrrpConn.WriteMessage(x); err != nil {
-		logger.Printf(ERROR, "VirtualRouter.WriteMessage: %v", err)
+		logg.Printf("ERROR sending vrrp message: %v", err)
 	}
 }
 
@@ -256,10 +267,10 @@ func (r *VirtualRouter) fetchVRRPDaemon() {
 	for {
 		packet, err := r.vrrpConn.ReadMessage()
 		if err != nil {
-			logger.Printf(ERROR, "VirtualRouter.fetchVRRPDaemon: %v", err)
+			logg.Printf("ERROR receive vrrp message: %v", err)
 			continue
 		}
-		// logger.Printf(INFO, "VRID [%d] received VRRP packet: \n%s\n\n", r.vrID, packet.String())
+		// logg.Printf(INFO, "VRID [%d] received VRRP packet: \n%s\n\n", r.vrID, packet.String())
 		if r.vrID != packet.GetVirtualRouterID() {
 			// 忽略不同 VRID 的 VRRP Advertisement 消息
 			continue
@@ -290,13 +301,13 @@ func (r *VirtualRouter) makeMasterDownTimer() {
 
 // 停止 主节点下线倒计时器
 func (r *VirtualRouter) stopMasterDownTimer() {
-	logger.Printf(DEBUG, "VRID [%d] master down timer stopped", r.vrID)
+	//logg.Printf("VRID [%d] master down timer stopped", r.vrID)
 	if !r.masterDownTimer.Stop() {
 		select {
 		case <-r.masterDownTimer.C:
 		default:
 		}
-		logger.Printf(DEBUG, "VRID [%d] master down timer expired before we stop it, drain the channel", r.vrID)
+		//logg.Printf( "VRID [%d] master down timer expired before we stop it, drain the channel", r.vrID)
 	}
 }
 
@@ -316,7 +327,7 @@ func (r *VirtualRouter) resetMasterDownTimerToSkewTime() {
 func (r *VirtualRouter) stateChanged(t transition) {
 	if work, ok := r.transitionHandler[t]; ok && work != nil {
 		work()
-		logger.Printf(INFO, "VRID [%d] handler of transition [%s] called", r.vrID, t)
+		logg.Printf("VRID [%d] handler of transition [%s] called", r.vrID, t)
 	}
 	return
 }
@@ -324,7 +335,7 @@ func (r *VirtualRouter) stateChanged(t transition) {
 // largerThan 比较IP数值大小 ip1 > ip2 （用于在优先级相同时IP大的优先）
 func largerThan(ip1, ip2 net.IP) bool {
 	if len(ip1) != len(ip2) {
-		//logger.Printf(FATAL, "largerThan: two compared IP addresses must have the same length")
+		//logg.Printf(FATAL, "largerThan: two compared IP addresses must have the same length")
 		return false
 	}
 	for index := range ip1 {
@@ -361,31 +372,31 @@ func (r *VirtualRouter) stateMachine() {
 			select {
 			case event := <-r.eventChannel:
 				if event == START {
-					logger.Printf(INFO, "VRID [%d] event %v received", r.vrID, event)
+					logg.Printf("VRID [%d] event %v received", r.vrID, event)
 					if r.priority == 255 || r.owner {
-						logger.Printf(INFO, "VRID [%d] enter owner mode", r.vrID)
+						logg.Printf("VRID [%d] enter owner mode", r.vrID)
 						r.sendAdvertMessage()
 						if err := r.addrAnnouncer.AnnounceAll(r); err != nil {
-							logger.Printf(ERROR, "VirtualRouter.EventLoop: %v", err)
+							logg.Printf("ERROR INIT to MASTER gratuitous arp sending: %v", err)
 						}
 						// 设置广播定时器
 						r.makeAdvertTicker()
 
-						logger.Printf(INFO, "VRID [%d] enter MASTER state", r.vrID)
+						logg.Printf("VRID [%d] enter MASTER state", r.vrID)
 						r.state = MASTER
 						r.stateChanged(Init2Master)
 					} else {
-						logger.Printf(INFO, "VRID [%d] VR is not the owner of protected IP addresses", r.vrID)
+						logg.Printf("VRID [%d] VR is not the owner of protected IP addresses", r.vrID)
 						r.setMasterAdvInterval(r.advertisementInterval)
 						// set up master down timer
 						r.makeMasterDownTimer()
-						logger.Printf(DEBUG, "VRID [%d] enter BACKUP state", r.vrID)
+						logg.Printf("VRID [%d] enter BACKUP state", r.vrID)
 						r.state = BACKUP
 						r.stateChanged(Init2Backup)
 					}
 				} else if event == SHUTDOWN {
 					// 一般来说不应该收到 SHUTDOWN 事件
-					logger.Printf(INFO, "VRID [%d] SHUTDOWN event received virtual will be close.", r.vrID)
+					logg.Printf("VRID [%d] SHUTDOWN event received virtual will be close.", r.vrID)
 					return
 				}
 			}
@@ -407,7 +418,7 @@ func (r *VirtualRouter) stateMachine() {
 					// 进入初始化状态
 					r.state = INIT
 					r.stateChanged(Master2Init)
-					logger.Printf(INFO, "VRID [%d]  SHUTDOWN event received virtual route will be close.", r.vrID)
+					logg.Printf("VRID [%d]  SHUTDOWN event received virtual route will be close.", r.vrID)
 					return
 				}
 			case <-r.advertisementTicker.C:
@@ -443,7 +454,7 @@ func (r *VirtualRouter) stateMachine() {
 					// 设置状态为 初始化
 					r.state = INIT
 					r.stateChanged(Backup2Init)
-					logger.Printf(INFO, "VRID [%d] SHUTDOWN event received virtual route will be close.", r.vrID)
+					logg.Printf("VRID [%d] SHUTDOWN event received virtual route will be close.", r.vrID)
 					return
 				}
 
@@ -451,7 +462,7 @@ func (r *VirtualRouter) stateMachine() {
 				// 收到心跳包
 				if packet.GetPriority() == 0 {
 					// 若心跳包优先级为 0，那么认为主节点让渡，设置主节点下线倒计时为 Skew_Time，进入选举状态
-					logger.Printf(INFO, "VRID [%d] received an advertisement with priority 0, transit into MASTER state", r.vrID)
+					logg.Printf("VRID [%d] received an advertisement with priority 0, transit into MASTER state", r.vrID)
 					// 设置 Master_Down_Timer 为 Skew_Time 进入选举状态
 					r.resetMasterDownTimerToSkewTime()
 				} else {
@@ -473,7 +484,7 @@ func (r *VirtualRouter) stateMachine() {
 				r.sendAdvertMessage()
 				// 发送ARP消息告知广播域内的主机当前主机接管了虚拟路由器的IP地址
 				if err := r.addrAnnouncer.AnnounceAll(r); err != nil {
-					logger.Printf(ERROR, "VirtualRouter.EventLoop: %v", err)
+					logg.Printf("ERROR BACKUP to MASTER sending gratuitous arp: %v", err)
 				}
 				// Set the Advertisement Timer to Advertisement interval
 				r.makeAdvertTicker()
