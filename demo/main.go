@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"github.com/Trisia/govrrp"
+	"github.com/vishvananda/netlink"
 	"log"
 	"net"
 	"os"
@@ -35,7 +36,7 @@ func main() {
 	if Nif == "" {
 		log.Fatal("-i 网卡名称不能为空")
 	}
-	if Typ != govrrp.IPv4 && Typ != govrrp.IPv6 {
+	if byte(Typ) != govrrp.IPv4 && byte(Typ) != govrrp.IPv6 {
 		log.Fatal("-t 虚拟路由器类型错误")
 	}
 	addr := net.ParseIP(VIP)
@@ -51,14 +52,29 @@ func main() {
 	vr.SetPriorityAndMasterAdvInterval(byte(Priority), time.Millisecond*time.Duration(Mill))
 	vr.AddIPvXAddr(addr)
 
-	vr.AddEventListener(govrrp.Backup2Master, func() {
+	vr.AddEventListener(govrrp.Init2Master, func() {
 		log.Printf("VRID [%d] init to master\n", vr.VRID())
+		link, _ := netlink.LinkByName(Nif)
+		ad, _ := netlink.ParseAddr(VIP + "/32")
+		_ = netlink.AddrReplace(link, ad)
+	})
+	vr.AddEventListener(govrrp.Backup2Master, func() {
+		log.Printf("VRID [%d] backup to master\n", vr.VRID())
+		link, _ := netlink.LinkByName(Nif)
+		ad, _ := netlink.ParseAddr(VIP + "/32")
+		_ = netlink.AddrReplace(link, ad)
 	})
 	vr.AddEventListener(govrrp.Master2Init, func() {
 		log.Printf("VRID [%d] master to init\n", vr.VRID())
+		link, _ := netlink.LinkByName(Nif)
+		ad, _ := netlink.ParseAddr(VIP + "/32")
+		_ = netlink.AddrDel(link, ad)
 	})
 	vr.AddEventListener(govrrp.Master2Backup, func() {
 		log.Printf("VRID [%d] master to backup\n", vr.VRID())
+		link, _ := netlink.LinkByName(Nif)
+		ad, _ := netlink.ParseAddr(VIP + "/32")
+		_ = netlink.AddrDel(link, ad)
 	})
 	go vr.Start()
 
