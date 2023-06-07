@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"github.com/Trisia/govrrp"
 	"github.com/vishvananda/netlink"
 	"log"
@@ -43,6 +44,10 @@ func main() {
 	if VIP == "" || addr == nil {
 		log.Fatal("-vip 虚拟IP地址错误")
 	}
+	bits := 32
+	if byte(Typ) == govrrp.IPv6 {
+		bits = 128
+	}
 
 	vr, err := govrrp.NewVirtualRouter(byte(VRID), Nif, Priority == 255, byte(Typ))
 	if err != nil {
@@ -55,25 +60,25 @@ func main() {
 	vr.AddEventListener(govrrp.Init2Master, func() {
 		log.Printf("VRID [%d] init to master\n", vr.VRID())
 		link, _ := netlink.LinkByName(Nif)
-		ad, _ := netlink.ParseAddr(VIP + "/32")
+		ad, _ := netlink.ParseAddr(fmt.Sprintf("%s/%d", VIP, bits))
 		_ = netlink.AddrReplace(link, ad)
 	})
 	vr.AddEventListener(govrrp.Backup2Master, func() {
 		log.Printf("VRID [%d] backup to master\n", vr.VRID())
 		link, _ := netlink.LinkByName(Nif)
-		ad, _ := netlink.ParseAddr(VIP + "/32")
+		ad, _ := netlink.ParseAddr(fmt.Sprintf("%s/%d", VIP, bits))
 		_ = netlink.AddrReplace(link, ad)
 	})
 	vr.AddEventListener(govrrp.Master2Init, func() {
 		log.Printf("VRID [%d] master to init\n", vr.VRID())
 		link, _ := netlink.LinkByName(Nif)
-		ad, _ := netlink.ParseAddr(VIP + "/32")
+		ad, _ := netlink.ParseAddr(fmt.Sprintf("%s/%d", VIP, bits))
 		_ = netlink.AddrDel(link, ad)
 	})
 	vr.AddEventListener(govrrp.Master2Backup, func() {
 		log.Printf("VRID [%d] master to backup\n", vr.VRID())
 		link, _ := netlink.LinkByName(Nif)
-		ad, _ := netlink.ParseAddr(VIP + "/32")
+		ad, _ := netlink.ParseAddr(fmt.Sprintf("%s/%d", VIP, bits))
 		_ = netlink.AddrDel(link, ad)
 	})
 	go vr.Start()
