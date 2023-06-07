@@ -27,14 +27,14 @@ func (v VRRPVersion) String() string {
 }
 
 const (
-	IPv4 = 4
-	IPv6 = 6
+	IPv4 byte = 4
+	IPv6 byte = 6
 )
 
 const (
-	INIT = iota
-	MASTER
-	BACKUP
+	INIT   = 0
+	MASTER = 1
+	BACKUP = 2
 )
 
 const (
@@ -56,8 +56,8 @@ var BroadcastHADAR, _ = net.ParseMAC("ff:ff:ff:ff:ff:ff")
 type EVENT byte
 
 const (
-	SHUTDOWN EVENT = iota
-	START
+	SHUTDOWN EVENT = 0
+	START    EVENT = 1
 )
 
 func (e EVENT) String() string {

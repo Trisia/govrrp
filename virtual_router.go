@@ -56,50 +56,45 @@ type VirtualRouter struct {
 	transitionHandler map[transition]func()
 }
 
-// NewVirtualRouter 创建虚拟路由器
-// VRID: 虚拟路由ID (0~255)
-// nif: 工作网口接口名称
-// Owner: 是否为MASTER
-// IPvX: IP协议类型(IPv4 或 IPv6)
-func NewVirtualRouter(VRID byte, nif string, Owner bool, IPvX byte) (*VirtualRouter, error) {
-	if IPvX != IPv4 && IPvX != IPv6 {
-		return nil, fmt.Errorf("NewVirtualRouter: parameter IPvx must be IPv4 or IPv6")
-	}
-
-	ift, err := net.InterfaceByName(nif)
-	if err != nil {
-		return nil, err
-	}
-
-	// 找到网口的IP地址
-	preferred, err := interfacePreferIP(ift, IPvX)
-	if err != nil {
-		return nil, err
+// NewVirtualRouterSpec 创建一个虚拟路由器实例
+// VRID: 虚拟路由ID
+// ift: 工作网口接口
+// preferIP: 优先使用的源IP地址，请确保工作网口配置由该IP地址保持一致。
+// priority: 优先级，255 表示主节点，0 为特殊值不可使用，默认100。
+func NewVirtualRouterSpec(VRID byte, ift *net.Interface, preferIP net.IP, priority byte) (*VirtualRouter, error) {
+	var err error
+	var ipvX byte
+	if preferIP.To4() != nil {
+		ipvX = IPv4
+		preferIP = preferIP.To4()
+	} else if preferIP.To16() != nil {
+		ipvX = IPv6
+		preferIP = preferIP.To16()
+	} else {
+		return nil, fmt.Errorf("invalid IP address")
 	}
 
 	vr := new(VirtualRouter)
 
+	vr.priority = priority
+	if vr.priority == 255 {
+		vr.owner = true
+	}
+	// 初始化状态机状态为 INIT
+	vr.state = INIT
+	// 开启抢占模式
+	vr.preempt = defaultPreempt
+
 	vr.vrID = VRID
-	vr.ipvX = IPvX
+	vr.ipvX = ipvX
 	vr.ift = ift
-	vr.preferredSourceIP = preferred
+	vr.preferredSourceIP = preferIP
 
 	// ref RFC 5798 7.3. Virtual Router MAC Address
 	// - IPv4 case: 00-00-5E-00-01-{VRID}
 	// - IPv6 case: 00-00-5E-00-02-{VRID}
 	vr.virtualRouterMACAddressIPv4, _ = net.ParseMAC(fmt.Sprintf("00-00-5E-00-01-%X", VRID))
 	vr.virtualRouterMACAddressIPv6, _ = net.ParseMAC(fmt.Sprintf("00-00-5E-00-02-%X", VRID))
-
-	// 初始化状态机状态为 INIT
-	vr.state = INIT
-
-	vr.owner = Owner
-	// default values that defined by RFC 5798
-	if Owner {
-		vr.priority = 255
-	}
-	// 开启抢占模式
-	vr.preempt = defaultPreempt
 
 	vr.SetAdvInterval(defaultAdvertisementInterval)
 	vr.SetPriorityAndMasterAdvInterval(defaultPriority, defaultAdvertisementInterval)
@@ -109,7 +104,7 @@ func NewVirtualRouter(VRID byte, nif string, Owner bool, IPvX byte) (*VirtualRou
 	vr.packetQueue = make(chan *VRRPPacket, PACKET_QUEUE_SIZE)
 	vr.transitionHandler = make(map[transition]func())
 
-	if IPvX == IPv4 {
+	if ipvX == IPv4 {
 		// 创建 IPv4 虚拟IP地址广播器
 		vr.addrAnnouncer, err = NewIPv4AddrAnnouncer(ift)
 		if err != nil {
@@ -132,8 +127,33 @@ func NewVirtualRouter(VRID byte, nif string, Owner bool, IPvX byte) (*VirtualRou
 			return nil, err
 		}
 	}
-	logg.Printf("VRID [%d] initialized, working on %s", VRID, nif)
+	logg.Printf("VRID [%d] initialized, working on %s", VRID, ift.Name)
 	return vr, nil
+}
+
+// NewVirtualRouter 创建虚拟路由器
+// VRID: 虚拟路由ID (0~255)
+// nif: 工作网口接口名称
+// Owner: 是否为MASTER
+// IPvX: IP协议类型(IPv4 或 IPv6)
+func NewVirtualRouter(VRID byte, nif string, Owner bool, IPvX byte) (*VirtualRouter, error) {
+	ift, err := net.InterfaceByName(nif)
+	if err != nil {
+		return nil, err
+	}
+
+	// 找到网口的IP地址
+	preferred, err := interfacePreferIP(ift, IPvX)
+	if err != nil {
+		return nil, err
+	}
+	// RFC 5798 5.2.4. Priority
+	var priority byte = 100
+	if Owner {
+		priority = 255
+	}
+
+	return NewVirtualRouterSpec(VRID, ift, preferred, priority)
 }
 
 // 设置 虚拟路由的优先级，如为主节点那么忽略
@@ -330,6 +350,46 @@ func (r *VirtualRouter) stateChanged(t transition) {
 		logg.Printf("VRID [%d] handler of transition [%s] called", r.vrID, t)
 	}
 	return
+}
+
+// GetPriority 获取 虚拟路由的优先级
+func (r *VirtualRouter) GetPriority() byte {
+	return r.priority
+}
+
+// GetState 获取 虚拟路由的状态
+// return INIT | MASTER | BACKUP
+func (r *VirtualRouter) GetState() int {
+	return r.state
+}
+
+// GetInterface 获取 虚拟路由的工作网口
+func (r *VirtualRouter) GetInterface() *net.Interface {
+	return r.ift
+}
+
+// GetPreferredSourceIP 获取 虚拟路由的优先IP地址
+func (r *VirtualRouter) GetPreferredSourceIP() net.IP {
+	return r.preferredSourceIP
+}
+
+// GetAdvInterval 获取 虚拟路由的心跳发送间隔
+func (r *VirtualRouter) GetAdvInterval() time.Duration {
+	return time.Duration(r.advertisementInterval) * 10 * time.Millisecond
+}
+
+// GetPreempt 获取 虚拟路由的抢占模式
+func (r *VirtualRouter) GetPreempt() bool {
+	return r.preempt
+}
+
+// GetVIPs 获取 虚拟路由的保护IP地址
+func (r *VirtualRouter) GetVIPs() []net.IP {
+	vips := make([]net.IP, 0)
+	for k := range r.protectedIPaddrs {
+		vips = append(vips, k.AsSlice())
+	}
+	return vips
 }
 
 // largerThan 比较IP数值大小 ip1 > ip2 （用于在优先级相同时IP大的优先）
