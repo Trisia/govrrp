@@ -59,13 +59,13 @@ func main() {
 	vr.AddIPvXAddr(net.ParseIP("192.168.0.230"))
 
 	// 注册事件监听
-	vr.AddEventListener(govrrp.Backup2Master, func() {
+	vr.AddEventListener(govrrp.Backup2Master, func(ctx *govrrp.VirtualRouter) {
 		log.Printf("VRID [%d] init to master\n", vr.VRID())
 	})
-	vr.AddEventListener(govrrp.Master2Init, func() {
+	vr.AddEventListener(govrrp.Master2Init, func(ctx *govrrp.VirtualRouter) {
 		log.Printf("VRID [%d] master to init\n", vr.VRID())
 	})
-	vr.AddEventListener(govrrp.Master2Backup, func() {
+	vr.AddEventListener(govrrp.Master2Backup, func(ctx *govrrp.VirtualRouter) {
 		log.Printf("VRID [%d] master to backup\n", vr.VRID())
 	})
 	

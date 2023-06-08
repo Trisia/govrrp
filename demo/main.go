@@ -57,26 +57,26 @@ func main() {
 	vr.SetPriorityAndMasterAdvInterval(byte(Priority), time.Millisecond*time.Duration(Mill))
 	vr.AddIPvXAddr(addr)
 
-	vr.AddEventListener(govrrp.Init2Master, func() {
-		log.Printf("VRID [%d] init to master\n", vr.VRID())
+	vr.AddEventListener(govrrp.Init2Master, func(ctx *govrrp.VirtualRouter) {
+		log.Printf("VRID [%d] init to master\n", ctx.VRID())
 		link, _ := netlink.LinkByName(Nif)
 		ad, _ := netlink.ParseAddr(fmt.Sprintf("%s/%d", VIP, bits))
 		_ = netlink.AddrReplace(link, ad)
 	})
-	vr.AddEventListener(govrrp.Backup2Master, func() {
+	vr.AddEventListener(govrrp.Backup2Master, func(ctx *govrrp.VirtualRouter) {
 		log.Printf("VRID [%d] backup to master\n", vr.VRID())
 		link, _ := netlink.LinkByName(Nif)
 		ad, _ := netlink.ParseAddr(fmt.Sprintf("%s/%d", VIP, bits))
 		_ = netlink.AddrReplace(link, ad)
 	})
-	vr.AddEventListener(govrrp.Master2Init, func() {
-		log.Printf("VRID [%d] master to init\n", vr.VRID())
+	vr.AddEventListener(govrrp.Master2Init, func(ctx *govrrp.VirtualRouter) {
+		log.Printf("VRID [%d] master to init\n", ctx.VRID())
 		link, _ := netlink.LinkByName(Nif)
 		ad, _ := netlink.ParseAddr(fmt.Sprintf("%s/%d", VIP, bits))
 		_ = netlink.AddrDel(link, ad)
 	})
-	vr.AddEventListener(govrrp.Master2Backup, func() {
-		log.Printf("VRID [%d] master to backup\n", vr.VRID())
+	vr.AddEventListener(govrrp.Master2Backup, func(ctx *govrrp.VirtualRouter) {
+		log.Printf("VRID [%d] master to backup\n", ctx.VRID())
 		link, _ := netlink.LinkByName(Nif)
 		ad, _ := netlink.ParseAddr(fmt.Sprintf("%s/%d", VIP, bits))
 		_ = netlink.AddrDel(link, ad)

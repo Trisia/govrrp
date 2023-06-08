@@ -53,7 +53,7 @@ type VirtualRouter struct {
 
 	// 状态转换处理函数集合，用于注册用户监听的状态处理函数
 	// 当状态机状态发生变化时，将调用对应的处理函数
-	transitionHandler map[transition]func()
+	transitionHandler map[transition]func(*VirtualRouter)
 }
 
 // NewVirtualRouterSpec 创建一个虚拟路由器实例
@@ -102,7 +102,7 @@ func NewVirtualRouterSpec(VRID byte, ift *net.Interface, preferIP net.IP, priori
 	vr.protectedIPaddrs = make(map[netip.Addr]bool)
 	vr.eventChannel = make(chan EVENT, EVENT_CHANNEL_SIZE)
 	vr.packetQueue = make(chan *VRRPPacket, PACKET_QUEUE_SIZE)
-	vr.transitionHandler = make(map[transition]func())
+	vr.transitionHandler = make(map[transition]func(*VirtualRouter))
 
 	if ipvX == IPv4 {
 		// 创建 IPv4 虚拟IP地址广播器
@@ -346,7 +346,7 @@ func (r *VirtualRouter) resetMasterDownTimerToSkewTime() {
 // 当状态机状态发生变更时，调用对应的处理函数
 func (r *VirtualRouter) stateChanged(t transition) {
 	if work, ok := r.transitionHandler[t]; ok && work != nil {
-		work()
+		work(r)
 		logg.Printf("VRID [%d] handler of transition [%s] called", r.vrID, t)
 	}
 	return
@@ -562,7 +562,7 @@ func (r *VirtualRouter) stateMachine() {
 // handler: 状态变更时的回调函数
 //
 // return: 如果已经存在该类型的监听器，那么返回 true，否则返回 false
-func (r *VirtualRouter) AddEventListener(typ transition, handler func()) bool {
+func (r *VirtualRouter) AddEventListener(typ transition, handler func(*VirtualRouter)) bool {
 	_, exist := r.transitionHandler[typ]
 	if exist {
 		r.transitionHandler[typ] = handler
