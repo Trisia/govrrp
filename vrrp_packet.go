@@ -305,3 +305,11 @@ func (packet *VRRPPacket) ToBytes() []byte {
 func (packet *VRRPPacket) PacketSize() int {
 	return 8 + len(packet.IPAddress)*4
 }
+
+// VRRPMsgConnection IP层VRRP协议消息接口
+type VRRPMsgConnection interface {
+	// WriteMessage 发送VRRP消息
+	WriteMessage(*VRRPPacket) error
+	// ReadMessage 接收VRRP消息
+	ReadMessage() (*VRRPPacket, error)
+}

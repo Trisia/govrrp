@@ -1,3 +1,5 @@
+//go:build linux
+
 package govrrp
 
 import (
@@ -5,14 +7,6 @@ import (
 	"net"
 	"syscall"
 )
-
-// VRRPMsgConnection IP层VRRP协议消息接口
-type VRRPMsgConnection interface {
-	// WriteMessage 发送VRRP消息
-	WriteMessage(*VRRPPacket) error
-	// ReadMessage 接收VRRP消息
-	ReadMessage() (*VRRPPacket, error)
-}
 
 // IPv4VRRPMsgCon IPv4的VRRP消息组播连接
 type IPv4VRRPMsgCon struct {
@@ -208,7 +202,7 @@ func (conn *IPv4VRRPMsgCon) ReadMessage() (*VRRPPacket, error) {
 }
 
 // NewIPv6VRRPMsgCon 创建的IPv6 VRRP虚拟连接
-func NewIPv6VRRPMsgCon(ift *net.Interface, src, dst net.IP) (*IPv6VRRPMsgCon, error) {
+func NewIPv6VRRPMsgCon(ift *net.Interface, src, dst net.IP) (VRRPMsgConnection, error) {
 	con, err := ipConnection(ift, src, dst)
 	if err != nil {
 		return nil, fmt.Errorf("NewIPv6VRRPMsgCon: %v", err)
@@ -293,32 +287,4 @@ func (con *IPv6VRRPMsgCon) ReadMessage() (*VRRPPacket, error) {
 	}
 	advertisement.Pshdr = &pshdr
 	return advertisement, nil
-}
-
-// interfacePreferIP 获取网口上第一个IPv4或IPv6地址
-func interfacePreferIP(itf *net.Interface, IPvX byte) (net.IP, error) {
-	addrs, err := itf.Addrs()
-	if err != nil {
-		return nil, fmt.Errorf("interfacePreferIP: %v", err)
-	}
-	for _, addr := range addrs {
-		ipaddr, _, _ := net.ParseCIDR(addr.String())
-		if len(ipaddr) == 0 {
-			continue
-		}
-		if IPvX == IPv4 {
-			if ipaddr.To4() != nil {
-				if ipaddr.IsGlobalUnicast() {
-					return ipaddr, nil
-				}
-			}
-		} else {
-			if ipaddr.To4() == nil {
-				if ipaddr.IsLinkLocalUnicast() {
-					return ipaddr, nil
-				}
-			}
-		}
-	}
-	return nil, fmt.Errorf("interfacePreferIP: can not find valid IP addrs on %v", itf.Name)
 }

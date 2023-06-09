@@ -590,3 +590,31 @@ func (r *VirtualRouter) Start() {
 func (r *VirtualRouter) Stop() {
 	r.eventChannel <- SHUTDOWN
 }
+
+// interfacePreferIP 获取网口上第一个IPv4或IPv6地址
+func interfacePreferIP(itf *net.Interface, IPvX byte) (net.IP, error) {
+	addrs, err := itf.Addrs()
+	if err != nil {
+		return nil, fmt.Errorf("interfacePreferIP: %v", err)
+	}
+	for _, addr := range addrs {
+		ipaddr, _, _ := net.ParseCIDR(addr.String())
+		if len(ipaddr) == 0 {
+			continue
+		}
+		if IPvX == IPv4 {
+			if ipaddr.To4() != nil {
+				if ipaddr.IsGlobalUnicast() {
+					return ipaddr, nil
+				}
+			}
+		} else {
+			if ipaddr.To4() == nil {
+				if ipaddr.IsLinkLocalUnicast() {
+					return ipaddr, nil
+				}
+			}
+		}
+	}
+	return nil, fmt.Errorf("interfacePreferIP: can not find valid IP addrs on %v", itf.Name)
+}
