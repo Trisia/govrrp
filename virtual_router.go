@@ -25,7 +25,10 @@ type VirtualRouter struct {
 
 	state int // 状态机状态 INIT | MASTER | BACKUP
 
-	preempt bool // 是否开启 抢占模式（默认 关闭）。若开启，谁先启动谁就是主节点，即便是主节点失效后，也不会再次成为主节点。
+	// preempt 抢占模式 控制虚拟路由的启动或重新启动，
+	// 高优先级备份路由器是否抢占低优先级主路由器。
+	// 值为 true 表示 允许抢占，值为 false 表示 禁止抢占。默认值为 true。
+	preempt bool
 	owner   bool // 是否是主节点（是否是IP的拥有者）
 
 	// 为了防止与区域网内的其他VRRP路由器冲突，暂时不使用虚拟MAC地址，而是使用工作网口接口的MAC地址
@@ -82,8 +85,8 @@ func NewVirtualRouterSpec(VRID byte, ift *net.Interface, preferIP net.IP, priori
 	}
 	// 初始化状态机状态为 INIT
 	vr.state = INIT
-	// 关闭 抢占模式，采用优先级决定主节点
-	vr.preempt = false
+	// 开启 抢占模式
+	vr.preempt = true
 
 	vr.vrID = VRID
 	vr.ipvX = ipvX
@@ -204,9 +207,8 @@ func (r *VirtualRouter) setMasterAdvInterval(Interval uint16) *VirtualRouter {
 }
 
 // SetPreemptMode 设置 抢占模式
-// 在开启抢占模式的情况下，谁先启动谁就是主节点，无论优先级如何，即便是主节点失效后，也不会再次成为主节点。
-// 默认：关闭抢占模式
-// flag: true - 开启； false - 关闭（默认）
+// 高优先级备份路由器是否抢占低优先级主路由器。
+// 值为 true 表示 允许抢占，值为 false 表示 禁止抢占。默认值为 true。
 func (r *VirtualRouter) SetPreemptMode(flag bool) *VirtualRouter {
 	r.preempt = flag
 	return r
@@ -528,14 +530,14 @@ func (r *VirtualRouter) stateMachine() {
 					// 设置 Master_Down_Timer 为 Skew_Time 进入选举状态
 					r.resetMasterDownTimerToSkewTime()
 				} else {
-					// 若为抢占模式，无论收到什么优先级的消息 均认为是来自主节点的心跳包；
+					// 若为非抢占模式，无论收到的心跳包优先级如何，都认为是来自主节点的心跳包
+					// 继续保持 BACKUP 状态
 					//
 					// 若收到的心跳包优先级比备份节点优先级高；
 					// 若优先级相同但是源IP比备份节点的优先源IP大；
 					// 那么 认为是来自主节点的心跳包。
-					//
 					// 继续保持 BACKUP 状态
-					if r.preempt ||
+					if r.preempt == false ||
 						packet.GetPriority() > r.priority ||
 						(packet.GetPriority() == r.priority && largerThan(packet.Pshdr.Saddr, r.preferredSourceIP)) {
 						// 重置主节点下线倒计时器
