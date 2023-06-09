@@ -106,7 +106,6 @@ const (
 )
 
 const (
-	defaultPreempt                    = true
 	defaultPriority              byte = 100
 	defaultAdvertisementInterval      = 1 * time.Second
 )
