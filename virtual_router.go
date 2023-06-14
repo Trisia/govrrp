@@ -556,6 +556,7 @@ func (r *VirtualRouter) stateMachine() {
 				}
 				// Set the Advertisement Timer to Advertisement interval
 				r.makeAdvertTicker()
+				logg.Printf("VRID [%d] enter MASTER state", r.vrID)
 				// 进入主节点状态
 				r.state = MASTER
 				r.stateChanged(Backup2Master)
