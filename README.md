@@ -82,3 +82,8 @@ func main() {
 }
 ```
 
+若您开启了防火墙请允许VRRP协议的组播包通过。
+
+```bash
+iptables -I INPUT -p vrrp -j ACCEPT
+```
