@@ -79,7 +79,6 @@ func NewVirtualRouterSpec(VRID byte, ift *net.Interface, preferIP net.IP, priori
 
 	vr := new(VirtualRouter)
 
-	vr.priority = priority
 	if vr.priority == 255 {
 		vr.owner = true
 	}
@@ -100,7 +99,7 @@ func NewVirtualRouterSpec(VRID byte, ift *net.Interface, preferIP net.IP, priori
 	vr.virtualRouterMACAddressIPv6, _ = net.ParseMAC(fmt.Sprintf("00-00-5E-00-02-%X", VRID))
 
 	vr.SetAdvInterval(defaultAdvertisementInterval)
-	vr.SetPriorityAndMasterAdvInterval(defaultPriority, defaultAdvertisementInterval)
+	vr.SetPriorityAndMasterAdvInterval(priority, defaultAdvertisementInterval)
 
 	vr.protectedIPaddrs = make(map[netip.Addr]bool)
 	vr.eventChannel = make(chan EVENT, EVENT_CHANNEL_SIZE)
@@ -161,9 +160,10 @@ func NewVirtualRouter(VRID byte, nif string, Owner bool, IPvX byte) (*VirtualRou
 
 // 设置 虚拟路由的优先级，如为主节点那么忽略
 func (r *VirtualRouter) setPriority(Priority byte) *VirtualRouter {
-	if r.owner {
-		return r
+	if r.priority == 255 {
+		r.owner = true
 	}
+
 	r.priority = Priority
 	return r
 }
