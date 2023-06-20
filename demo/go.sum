@@ -1,9 +1,8 @@
-github.com/Trisia/govrrp v1.0.3 h1:wd5B7fkt7zixBZNneywUz6re2q7nn2JXpPeQoyX6j9M=
-github.com/Trisia/govrrp v1.0.3/go.mod h1:A0fBoAaP3ZyjKsNZFRMGnE2LUo5T5Yn40ndvwFQfzg4=
-github.com/Trisia/govrrp v1.0.4 h1:XXAwBRrAx7amH4il1vOoC0SNQCcJ3QCBBRzfDf+iNGo=
-github.com/Trisia/govrrp v1.0.4/go.mod h1:A0fBoAaP3ZyjKsNZFRMGnE2LUo5T5Yn40ndvwFQfzg4=
+github.com/Trisia/govrrp v1.0.6 h1:/a/0DVvQPa5P2etEj2Jusw6dPOptdI02lZy9p9Tkp8E=
+github.com/Trisia/govrrp v1.0.6/go.mod h1:A0fBoAaP3ZyjKsNZFRMGnE2LUo5T5Yn40ndvwFQfzg4=
 github.com/google/go-cmp v0.5.6/go.mod h1:v8dTdLbMG2kIc/vJvl+f65V22dbkXbowE6jgT/gNBxE=
 github.com/google/go-cmp v0.5.7/go.mod h1:n+brtR0CgQNWTVd5ZUFpTBC8YFBDLK/h/bpaJ8/DtOE=
+github.com/google/go-cmp v0.5.9 h1:O2Tfq5qg4qc4AmwVlvv0oLiVAGB7enBSJ2x2DqQFi38=
 github.com/josharian/native v1.0.0/go.mod h1:7X/raswPFr05uY3HiLlYeyQntB6OO7E/d2Cu7qoaN2w=
 github.com/josharian/native v1.1.0 h1:uuaP0hAbW7Y4l0ZRQ6C9zfb7Mg1mbFKry/xzDAfmtLA=
 github.com/josharian/native v1.1.0/go.mod h1:7X/raswPFr05uY3HiLlYeyQntB6OO7E/d2Cu7qoaN2w=
