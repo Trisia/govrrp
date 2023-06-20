@@ -201,6 +201,7 @@ func (r *VirtualRouter) setMasterAdvInterval(Interval uint16) *VirtualRouter {
 
 	// Master_Down_Interval  = (3 * Master_Adver_Interval) + Skew_time
 	r.masterDownInterval = 3*r.advertisementIntervalOfMaster + r.skewTime
+	// logg.Printf("set MasterAdvInterval skewTime: %d, masterDownInterval: %d\n", r.skewTime, r.masterDownInterval)
 	// 从 MasterDownInterval 和 SkewTime 的计算方式来看，
 	// 同一组VirtualRouter中，Priority 越高的Router越快地认为某个Master失效
 	return r
@@ -451,7 +452,7 @@ func (r *VirtualRouter) stateMachine() {
 						r.stateChanged(Init2Master)
 					} else {
 						logg.Printf("VRID [%d] VR is not the owner of protected IP addresses", r.vrID)
-						r.setMasterAdvInterval(r.advertisementInterval)
+						r.setMasterAdvInterval(r.advertisementIntervalOfMaster)
 						// set up master down timer
 						r.makeMasterDownTimer()
 						logg.Printf("VRID [%d] enter BACKUP state", r.vrID)
@@ -471,6 +472,7 @@ func (r *VirtualRouter) stateMachine() {
 			case event := <-r.eventChannel:
 				// 收到 shutdown 事件
 				if event == SHUTDOWN {
+					logg.Printf("VRID [%d]  SHUTDOWN event received virtual route will be close.", r.vrID)
 					// 关闭心跳包定时器
 					r.stopAdvertTicker()
 					// 设置优先级为 0（表示让渡主节点），并广播发送消息
@@ -482,7 +484,6 @@ func (r *VirtualRouter) stateMachine() {
 					// 进入初始化状态
 					r.state = INIT
 					r.stateChanged(Master2Init)
-					logg.Printf("VRID [%d]  SHUTDOWN event received virtual route will be close.", r.vrID)
 					return
 				}
 			case <-r.advertisementTicker.C:
@@ -523,6 +524,7 @@ func (r *VirtualRouter) stateMachine() {
 				}
 
 			case packet := <-r.packetQueue:
+				//logg.Printf("VRID [%d] received a packet from %s priority %d", r.vrID, packet.Pshdr.Saddr.String(), packet.GetPriority())
 				// 收到心跳包
 				if packet.GetPriority() == 0 {
 					// 若心跳包优先级为 0，那么认为主节点让渡，设置主节点下线倒计时为 Skew_Time，进入选举状态
@@ -547,6 +549,7 @@ func (r *VirtualRouter) stateMachine() {
 				}
 
 			case <-r.masterDownTimer.C:
+				logg.Printf("VRID [%d] enter MASTER state", r.vrID)
 				// 主节点下线倒计时到期，进入选举状态
 				// 组播当前节点的心跳消息，表示当前节点想要成为主节点
 				r.sendAdvertMessage()
@@ -556,7 +559,6 @@ func (r *VirtualRouter) stateMachine() {
 				}
 				// Set the Advertisement Timer to Advertisement interval
 				r.makeAdvertTicker()
-				logg.Printf("VRID [%d] enter MASTER state", r.vrID)
 				// 进入主节点状态
 				r.state = MASTER
 				r.stateChanged(Backup2Master)

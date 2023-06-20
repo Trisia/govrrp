@@ -54,6 +54,7 @@ func main() {
 		log.Fatal(err)
 	}
 
+	vr.SetAdvInterval(time.Millisecond * time.Duration(Mill))
 	vr.SetPriorityAndMasterAdvInterval(byte(Priority), time.Millisecond*time.Duration(Mill))
 	vr.AddIPvXAddr(addr)
 
