@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"sync/atomic"
 	"time"
 )
 
@@ -23,7 +24,7 @@ type VirtualRouter struct {
 	vrID     byte // 虚拟路由ID
 	priority byte // 优先级
 
-	state int // 状态机状态 INIT | MASTER | BACKUP
+	state uint32 // 状态机状态 INIT | MASTER | BACKUP
 
 	// preempt 抢占模式 控制虚拟路由的启动或重新启动，
 	// 高优先级备份路由器是否抢占低优先级主路由器。
@@ -83,7 +84,7 @@ func NewVirtualRouterSpec(VRID byte, ift *net.Interface, preferIP net.IP, priori
 		vr.owner = true
 	}
 	// 初始化状态机状态为 INIT
-	vr.state = INIT
+	atomic.StoreUint32(&vr.state, INIT)
 	// 开启 抢占模式
 	vr.preempt = true
 
@@ -289,7 +290,13 @@ func (r *VirtualRouter) assembleVRRPPacket() *VRRPPacket {
 
 // fetchVRRPDaemon VRRP Advertisement 消息接收精灵，持续接收VRRP Advertisement 消息，收到的消息会被放入 packetQueue 队列中。
 func (r *VirtualRouter) fetchVRRPDaemon() {
+	logg.Printf("VRID [%d] fetch vrrp msg daemon start", r.vrID)
 	for {
+		if atomic.LoadUint32(&r.state) == INIT {
+			// 如果虚拟路由器处于 INIT 状态，则停止接收 VRRP Advertisement 消息
+			logg.Printf("VRID [%d] fetch vrrp msg daemon stopped", r.vrID)
+			return
+		}
 		packet, err := r.vrrpConn.ReadMessage()
 		if err != nil {
 			logg.Printf("ERROR receive vrrp message: %v", err)
@@ -364,8 +371,8 @@ func (r *VirtualRouter) GetPriority() byte {
 
 // GetState 获取 虚拟路由的状态
 // return INIT | MASTER | BACKUP
-func (r *VirtualRouter) GetState() int {
-	return r.state
+func (r *VirtualRouter) GetState() uint32 {
+	return atomic.LoadUint32(&r.state)
 }
 
 // GetInterface 获取 虚拟路由的工作网口
@@ -438,6 +445,10 @@ func (r *VirtualRouter) stateMachine() {
 			case event := <-r.eventChannel:
 				if event == START {
 					logg.Printf("VRID [%d] event %v received", r.vrID, event)
+
+					// 监听VRRP消息
+					go r.fetchVRRPDaemon()
+
 					if r.priority == 255 || r.owner {
 						logg.Printf("VRID [%d] enter owner mode", r.vrID)
 						r.sendAdvertMessage()
@@ -448,7 +459,7 @@ func (r *VirtualRouter) stateMachine() {
 						r.makeAdvertTicker()
 
 						logg.Printf("VRID [%d] enter MASTER state", r.vrID)
-						r.state = MASTER
+						atomic.StoreUint32(&r.state, MASTER)
 						r.stateChanged(Init2Master)
 					} else {
 						logg.Printf("VRID [%d] VR is not the owner of protected IP addresses", r.vrID)
@@ -456,7 +467,7 @@ func (r *VirtualRouter) stateMachine() {
 						// set up master down timer
 						r.makeMasterDownTimer()
 						logg.Printf("VRID [%d] enter BACKUP state", r.vrID)
-						r.state = BACKUP
+						atomic.StoreUint32(&r.state, BACKUP)
 						r.stateChanged(Init2Backup)
 					}
 				} else if event == SHUTDOWN {
@@ -482,7 +493,7 @@ func (r *VirtualRouter) stateMachine() {
 
 					r.setPriority(priority)
 					// 进入初始化状态
-					r.state = INIT
+					atomic.StoreUint32(&r.state, INIT)
 					r.stateChanged(Master2Init)
 					return
 				}
@@ -501,7 +512,7 @@ func (r *VirtualRouter) stateMachine() {
 					// 初始化主节点下线倒计时
 					r.makeMasterDownTimer()
 					// 切换状态至备份节点
-					r.state = BACKUP
+					atomic.StoreUint32(&r.state, BACKUP)
 					r.stateChanged(Master2Backup)
 				} else {
 					// 忽略优先级低的所有消息
@@ -517,7 +528,7 @@ func (r *VirtualRouter) stateMachine() {
 					// 关闭主节点下线倒计时
 					r.stopMasterDownTimer()
 					// 设置状态为 初始化
-					r.state = INIT
+					atomic.StoreUint32(&r.state, INIT)
 					r.stateChanged(Backup2Init)
 					logg.Printf("VRID [%d] SHUTDOWN event received virtual route will be close.", r.vrID)
 					return
@@ -560,7 +571,7 @@ func (r *VirtualRouter) stateMachine() {
 				// Set the Advertisement Timer to Advertisement interval
 				r.makeAdvertTicker()
 				// 进入主节点状态
-				r.state = MASTER
+				atomic.StoreUint32(&r.state, MASTER)
 				r.stateChanged(Backup2Master)
 			}
 		}
@@ -587,10 +598,8 @@ func (r *VirtualRouter) AddEventListener(typ transition, handler func(*VirtualRo
 // Start 启动虚拟路由器
 // 虚拟路由器启动后，将开始监听VRRP消息，根据状态机的状态，切换至不同的状态。
 func (r *VirtualRouter) Start() {
-	// 监听VRRP消息
-	go r.fetchVRRPDaemon()
+	// 发送启动命令
 	go func() {
-		// 发送启动命令
 		r.eventChannel <- START
 	}()
 	// 启动状态机
@@ -600,6 +609,12 @@ func (r *VirtualRouter) Start() {
 // Stop 停止虚拟路由器
 func (r *VirtualRouter) Stop() {
 	r.eventChannel <- SHUTDOWN
+	if r.addrAnnouncer != nil {
+		_ = r.addrAnnouncer.Close()
+	}
+	if r.vrrpConn != nil {
+		_ = r.vrrpConn.Close()
+	}
 }
 
 // interfacePreferIP 获取网口上第一个IPv4或IPv6地址

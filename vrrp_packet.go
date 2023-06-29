@@ -3,6 +3,7 @@ package govrrp
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"unsafe"
@@ -308,6 +309,7 @@ func (packet *VRRPPacket) PacketSize() int {
 
 // VRRPMsgConnection IP层VRRP协议消息接口
 type VRRPMsgConnection interface {
+	io.Closer
 	// WriteMessage 发送VRRP消息
 	WriteMessage(*VRRPPacket) error
 	// ReadMessage 接收VRRP消息

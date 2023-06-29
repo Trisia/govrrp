@@ -32,9 +32,9 @@ const (
 )
 
 const (
-	INIT   = 0
-	MASTER = 1
-	BACKUP = 2
+	INIT   uint32 = 0
+	MASTER uint32 = 1
+	BACKUP uint32 = 2
 )
 
 const (
@@ -71,7 +71,7 @@ func (e EVENT) String() string {
 	}
 }
 
-const PACKET_QUEUE_SIZE = 1000
+const PACKET_QUEUE_SIZE = 512
 const EVENT_CHANNEL_SIZE = 1
 
 // transition 状态切换类型

@@ -201,6 +201,17 @@ func (conn *IPv4VRRPMsgCon) ReadMessage() (*VRRPPacket, error) {
 	return advertisement, nil
 }
 
+func (conn *IPv4VRRPMsgCon) Close() error {
+	if conn.SendCon != nil {
+		_ = conn.SendCon.Close()
+	}
+
+	if conn.ReceiveCon != nil {
+		_ = conn.ReceiveCon.Close()
+	}
+	return nil
+}
+
 // NewIPv6VRRPMsgCon 创建的IPv6 VRRP虚拟连接
 func NewIPv6VRRPMsgCon(ift *net.Interface, src, dst net.IP) (VRRPMsgConnection, error) {
 	con, err := ipConnection(ift, src, dst)
@@ -287,4 +298,11 @@ func (con *IPv6VRRPMsgCon) ReadMessage() (*VRRPPacket, error) {
 	}
 	advertisement.Pshdr = &pshdr
 	return advertisement, nil
+}
+
+func (con *IPv6VRRPMsgCon) Close() error {
+	if con.Con != nil {
+		return con.Con.Close()
+	}
+	return nil
 }

@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"github.com/mdlayher/arp"
 	"github.com/mdlayher/ndp"
+	"io"
 	"net"
 	"time"
 )
 
 type AddrAnnouncer interface {
+	io.Closer
 	AnnounceAll(vr *VirtualRouter) error
 }
 
@@ -58,6 +60,13 @@ func (nd *IPv6AddrAnnouncer) AnnounceAll(vr *VirtualRouter) error {
 	return nil
 }
 
+func (nd *IPv6AddrAnnouncer) Close() error {
+	if nd != nil && nd.con != nil {
+		return nd.con.Close()
+	}
+	return nil
+}
+
 // IPv4AddrAnnouncer IPv4 Gratuitous ARP广播，在指定网口上广播Gratuitous ARP消息通知其他主机VIP地址
 type IPv4AddrAnnouncer struct {
 	ARPClient *arp.Client
@@ -78,7 +87,6 @@ func (ar *IPv4AddrAnnouncer) AnnounceAll(vr *VirtualRouter) error {
 	if err := ar.ARPClient.SetWriteDeadline(time.Now().Add(500 * time.Microsecond)); err != nil {
 		return err
 	}
-
 	// 构造 gratuitous ARP response
 	var packet arp.Packet
 	packet.HardwareType = 1       // ethernet
@@ -96,6 +104,13 @@ func (ar *IPv4AddrAnnouncer) AnnounceAll(vr *VirtualRouter) error {
 		if err := ar.ARPClient.WriteTo(&packet, BroadcastHADAR); err != nil {
 			return fmt.Errorf("IPv4AddrAnnouncer.AnnounceAll: %v", err)
 		}
+	}
+	return nil
+}
+
+func (ar *IPv4AddrAnnouncer) Close() error {
+	if ar != nil && ar.ARPClient != nil {
+		return ar.ARPClient.Close()
 	}
 	return nil
 }
