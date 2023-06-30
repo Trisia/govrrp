@@ -16,6 +16,27 @@ func TestVRRPPacket_FromBytes(t *testing.T) {
 	}
 }
 
+func TestVRRPPacket_ToBytes(t *testing.T) {
+	var packet VRRPPacket
+	packet.SetPriority(100)
+	packet.SetVersion(VRRPv3)
+	packet.SetVirtualRouterID(240)
+	packet.SetAdvertisementInterval(100)
+	packet.SetType()
+	addr, _ := netip.ParseAddr("192.168.0.230")
+	packet.AddIPAddr(addr)
+
+	pshdr := PseudoHeader{
+		Daddr:    net.ParseIP("224.0.0.18"),
+		Saddr:    net.ParseIP("192.168.0.220"),
+		Protocol: VRRPIPProtocolNumber,
+		Len:      uint16(packet.PacketSize()),
+	}
+	packet.SetCheckSum(&pshdr)
+
+	fmt.Printf("%02X\n", packet.ToBytes())
+}
+
 func TestVRRPPacket_ValidateCheckSum(t *testing.T) {
 	raw, _ := hex.DecodeString("31f0640100640608c0a800e6")
 	p, err := FromBytes(IPv4, raw)

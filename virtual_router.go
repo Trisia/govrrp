@@ -124,11 +124,11 @@ func NewVirtualRouterSpec(VRID byte, ift *net.Interface, preferIP net.IP, priori
 		if err != nil {
 			return nil, err
 		}
-		// 创建IPv6接口 (组播)
-		vr.vrrpConn, err = NewIPv6VRRPMsgCon(ift, vr.preferredSourceIP, VRRPMultiAddrIPv6)
-		if err != nil {
-			return nil, err
-		}
+		//// 创建IPv6接口 (组播)
+		//vr.vrrpConn, err = NewIPv6VRRPMsgCon(ift, vr.preferredSourceIP, VRRPMultiAddrIPv6)
+		//if err != nil {
+		//	return nil, err
+		//}
 	}
 	logg.Printf("VRID [%d] initialized, working on %s", VRID, ift.Name)
 	return vr, nil
@@ -302,7 +302,7 @@ func (r *VirtualRouter) fetchVRRPDaemon() {
 			logg.Printf("ERROR receive vrrp message: %v", err)
 			continue
 		}
-		// logg.Printf(INFO, "VRID [%d] received VRRP packet: \n%s\n\n", r.vrID, packet.String())
+		logg.Printf("VRID [%d] received VRRP packet: \n%s\n\n", r.vrID, packet.String())
 		if r.vrID != packet.GetVirtualRouterID() {
 			// 忽略不同 VRID 的 VRRP Advertisement 消息
 			continue
