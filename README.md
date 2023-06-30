@@ -13,8 +13,6 @@ VRRP协议用于路由器的冗余，协议通过组播的方式定期发送“�
 
 虚拟IP使用 ARP协议中的Gratuitous ARP来实现，由主节点定期以广播形式发出。
 
-**仅支持 Linux！**
-
 ![img.png](demo/img.png)
 
 ## 快速开始
@@ -54,6 +52,7 @@ func main() {
 		log.Fatal(err)
 	}
     // 设置路由 优先级 和 心跳时间
+	vr.SetAdvInterval(time.Millisecond * 800)
 	vr.SetPriorityAndMasterAdvInterval(100, time.Millisecond*800)
 	// 设置虚拟IP
 	vr.AddIPvXAddr(net.ParseIP("192.168.0.230"))
