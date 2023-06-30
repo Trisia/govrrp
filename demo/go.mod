@@ -3,7 +3,7 @@ module demo
 go 1.20
 
 require (
-	github.com/Trisia/govrrp v1.0.8
+	github.com/Trisia/govrrp v1.0.9-0.20230630085917-24fd0dac7771
 	github.com/vishvananda/netlink v1.1.0
 )
 
