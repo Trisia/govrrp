@@ -483,7 +483,7 @@ func (r *VirtualRouter) stateMachine() {
 			case event := <-r.eventChannel:
 				// 收到 shutdown 事件
 				if event == SHUTDOWN {
-					logg.Printf("VRID [%d] SHUTDOWN event received virtual route will be close.", r.vrID)
+					logg.Printf("VRID [%d] SHUTDOWN event received virtual route will reset to INIT state.", r.vrID)
 					// 关闭心跳包定时器
 					r.stopAdvertTicker()
 					// 设置优先级为 0（表示让渡主节点），并广播发送消息
@@ -495,7 +495,6 @@ func (r *VirtualRouter) stateMachine() {
 					// 进入初始化状态
 					atomic.StoreUint32(&r.state, INIT)
 					r.stateChanged(Master2Init)
-					logg.Printf("VRID [%d] SHUTDOWN event received virtual route will reset to init state.", r.vrID)
 				}
 			case <-r.advertisementTicker.C:
 				// 心跳包定时器到期，发送心跳包
@@ -525,12 +524,12 @@ func (r *VirtualRouter) stateMachine() {
 			case event := <-r.eventChannel:
 
 				if event == SHUTDOWN {
+					logg.Printf("VRID [%d] SHUTDOWN event received virtual route will reset to INIT state.", r.vrID)
 					// 关闭主节点下线倒计时
 					r.stopMasterDownTimer()
 					// 设置状态为 初始化
 					atomic.StoreUint32(&r.state, INIT)
 					r.stateChanged(Backup2Init)
-					logg.Printf("VRID [%d] SHUTDOWN event received virtual route will reset to init state.", r.vrID)
 					//return
 				}
 
