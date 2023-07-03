@@ -299,8 +299,8 @@ func (r *VirtualRouter) fetchVRRPDaemon() {
 		}
 		packet, err := r.vrrpConn.ReadMessage()
 		if err != nil {
-			logg.Printf("ERROR receive vrrp message: %v", err)
-			continue
+			logg.Printf("ERROR receive vrrp message: %v, fetch message will be stop", err)
+			return
 		}
 		//logg.Printf("VRID [%d] received VRRP packet: \n%s\n\n", r.vrID, packet.String())
 		if r.vrID != packet.GetVirtualRouterID() {
@@ -437,6 +437,7 @@ func largerThan(ip1, ip2 net.IP) bool {
 //	|               |<----------------------|               |
 //	+---------------+                       +---------------+
 func (r *VirtualRouter) stateMachine() {
+	defer r.close()
 	for {
 		switch r.state {
 		case INIT:
@@ -471,8 +472,7 @@ func (r *VirtualRouter) stateMachine() {
 						r.stateChanged(Init2Backup)
 					}
 				} else if event == SHUTDOWN {
-					// 一般来说不应该收到 SHUTDOWN 事件
-					logg.Printf("VRID [%d] SHUTDOWN event received virtual will be close.", r.vrID)
+					logg.Printf("VRID [%d] SHUTDOWN close state machine.", r.vrID)
 					return
 				}
 			}
@@ -483,7 +483,7 @@ func (r *VirtualRouter) stateMachine() {
 			case event := <-r.eventChannel:
 				// 收到 shutdown 事件
 				if event == SHUTDOWN {
-					logg.Printf("VRID [%d]  SHUTDOWN event received virtual route will be close.", r.vrID)
+					logg.Printf("VRID [%d] SHUTDOWN event received virtual route will be close.", r.vrID)
 					// 关闭心跳包定时器
 					r.stopAdvertTicker()
 					// 设置优先级为 0（表示让渡主节点），并广播发送消息
@@ -495,7 +495,7 @@ func (r *VirtualRouter) stateMachine() {
 					// 进入初始化状态
 					atomic.StoreUint32(&r.state, INIT)
 					r.stateChanged(Master2Init)
-					return
+					logg.Printf("VRID [%d] SHUTDOWN event received virtual route will reset to init state.", r.vrID)
 				}
 			case <-r.advertisementTicker.C:
 				// 心跳包定时器到期，发送心跳包
@@ -530,8 +530,8 @@ func (r *VirtualRouter) stateMachine() {
 					// 设置状态为 初始化
 					atomic.StoreUint32(&r.state, INIT)
 					r.stateChanged(Backup2Init)
-					logg.Printf("VRID [%d] SHUTDOWN event received virtual route will be close.", r.vrID)
-					return
+					logg.Printf("VRID [%d] SHUTDOWN event received virtual route will reset to init state.", r.vrID)
+					//return
 				}
 
 			case packet := <-r.packetQueue:
@@ -608,7 +608,22 @@ func (r *VirtualRouter) Start() {
 
 // Stop 停止虚拟路由器
 func (r *VirtualRouter) Stop() {
-	r.eventChannel <- SHUTDOWN
+	// 若不为 INIT 状态，
+	// 向发送停止命令，使状态机进入 INIT 状态。
+	if atomic.LoadUint32(&r.state) != INIT {
+		r.eventChannel <- SHUTDOWN
+	}
+	// 终止并退出状态机
+	go func() {
+		r.eventChannel <- SHUTDOWN
+	}()
+}
+
+// 关闭连接回收资源
+func (r *VirtualRouter) close() {
+	if r == nil {
+		return
+	}
 	if r.addrAnnouncer != nil {
 		_ = r.addrAnnouncer.Close()
 	}
