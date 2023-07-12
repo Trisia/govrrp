@@ -30,7 +30,6 @@ type VirtualRouter struct {
 	// 高优先级备份路由器是否抢占低优先级主路由器。
 	// 值为 true 表示 允许抢占，值为 false 表示 禁止抢占。默认值为 true。
 	preempt bool
-	owner   bool // 是否是主节点（是否是IP的拥有者）
 
 	// 为了防止与区域网内的其他VRRP路由器冲突，暂时不使用虚拟MAC地址，而是使用工作网口接口的MAC地址
 	virtualRouterMACAddressIPv4 net.HardwareAddr // IPv4 虚拟MAC地址
@@ -79,10 +78,6 @@ func NewVirtualRouterSpec(VRID byte, ift *net.Interface, preferIP net.IP, priori
 	}
 
 	vr := new(VirtualRouter)
-
-	if vr.priority == 255 {
-		vr.owner = true
-	}
 	// 初始化状态机状态为 INIT
 	atomic.StoreUint32(&vr.state, INIT)
 	// 开启 抢占模式
@@ -161,10 +156,6 @@ func NewVirtualRouter(VRID byte, nif string, Owner bool, IPvX byte) (*VirtualRou
 
 // 设置 虚拟路由的优先级，如为主节点那么忽略
 func (r *VirtualRouter) setPriority(Priority byte) *VirtualRouter {
-	if r.priority == 255 {
-		r.owner = true
-	}
-
 	r.priority = Priority
 	return r
 }
@@ -289,6 +280,7 @@ func (r *VirtualRouter) assembleVRRPPacket() *VRRPPacket {
 }
 
 // fetchVRRPDaemon VRRP Advertisement 消息接收精灵，持续接收VRRP Advertisement 消息，收到的消息会被放入 packetQueue 队列中。
+// 如果虚拟路由器处于 INIT 状态，则停止接收 VRRP Advertisement 消息，请确启动该携程前 VirtualRouter 的 state 状态为 MASTER 或 BACKUP。
 func (r *VirtualRouter) fetchVRRPDaemon() {
 	logg.Printf("VRID [%d] fetch vrrp msg daemon start", r.vrID)
 	for {
@@ -446,11 +438,7 @@ func (r *VirtualRouter) stateMachine() {
 			case event := <-r.eventChannel:
 				if event == START {
 					logg.Printf("VRID [%d] event %v received", r.vrID, event)
-
-					// 监听VRRP消息
-					go r.fetchVRRPDaemon()
-
-					if r.priority == 255 || r.owner {
+					if r.priority == 255 {
 						logg.Printf("VRID [%d] enter owner mode", r.vrID)
 						r.sendAdvertMessage()
 						if err := r.addrAnnouncer.AnnounceAll(r); err != nil {
@@ -458,7 +446,6 @@ func (r *VirtualRouter) stateMachine() {
 						}
 						// 设置广播定时器
 						r.makeAdvertTicker()
-
 						logg.Printf("VRID [%d] enter MASTER state", r.vrID)
 						atomic.StoreUint32(&r.state, MASTER)
 						r.stateChanged(Init2Master)
@@ -471,6 +458,9 @@ func (r *VirtualRouter) stateMachine() {
 						atomic.StoreUint32(&r.state, BACKUP)
 						r.stateChanged(Init2Backup)
 					}
+
+					// 监听VRRP消息
+					go r.fetchVRRPDaemon()
 				} else if event == SHUTDOWN {
 					logg.Printf("VRID [%d] SHUTDOWN close state machine.", r.vrID)
 					return
