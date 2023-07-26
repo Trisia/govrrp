@@ -603,9 +603,7 @@ func (r *VirtualRouter) Stop() {
 		r.eventChannel <- SHUTDOWN
 	}
 	// 终止并退出状态机
-	go func() {
-		r.eventChannel <- SHUTDOWN
-	}()
+	r.eventChannel <- SHUTDOWN
 }
 
 // 关闭连接回收资源
