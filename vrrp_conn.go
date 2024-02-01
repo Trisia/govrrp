@@ -7,6 +7,11 @@ import (
 	"net"
 )
 
+// NetErr 网络异常
+type NetErr struct {
+	error
+}
+
 // NewIPv4VRRPMsgConn 创建的IPv4 VRRP虚拟连接
 // ift: 工作网口
 // src: IP数据包中源地址，应该为工作网口的IP地址
@@ -57,7 +62,7 @@ type IPv4VRRPMsgCon struct {
 func (conn *IPv4VRRPMsgCon) WriteMessage(packet *VRRPPacket) error {
 	//cm := &ipv4.ControlMessage{TTL: 255, Src: conn.local, IfIndex: conn.itf.Index}
 	if _, err := conn.pc.WriteTo(packet.ToBytes(), nil, conn.remote); err != nil {
-		return fmt.Errorf("IPv4VRRPMsgCon.WriteMessage: %v", err)
+		return NetErr{fmt.Errorf("IPv4VRRPMsgCon.WriteMessage: %v", err)}
 	}
 	return nil
 }
@@ -67,7 +72,7 @@ func (conn *IPv4VRRPMsgCon) ReadMessage() (*VRRPPacket, error) {
 	// 此处读取到的数据为 IP数据包
 	var n, cm, _, err = conn.pc.ReadFrom(conn.buffer)
 	if err != nil {
-		return nil, fmt.Errorf("IPv4VRRPMsgCon.ReadMessage: %v", err)
+		return nil, NetErr{fmt.Errorf("IPv4VRRPMsgCon.ReadMessage: %v", err)}
 	}
 	// 检查 TTL 应该为 255 (see RFC5798 5.1.1.3. TTL)
 	if cm.TTL != 255 {
@@ -152,7 +157,7 @@ type IPv6VRRPMsgCon struct {
 func (con *IPv6VRRPMsgCon) WriteMessage(packet *VRRPPacket) error {
 	//cm := &ipv6.ControlMessage{TTL: 255, IfIndex: con.itf.Index}
 	if _, err := con.pc.WriteTo(packet.ToBytes(), nil, con.remote); err != nil {
-		return fmt.Errorf("IPv6VRRPMsgCon.WriteMessage: %v", err)
+		return NetErr{fmt.Errorf("IPv6VRRPMsgCon.WriteMessage: %v", err)}
 	}
 	return nil
 }
@@ -161,7 +166,7 @@ func (con *IPv6VRRPMsgCon) WriteMessage(packet *VRRPPacket) error {
 func (con *IPv6VRRPMsgCon) ReadMessage() (*VRRPPacket, error) {
 	n, cm, _, err := con.pc.ReadFrom(con.buffer)
 	if err != nil {
-		return nil, fmt.Errorf("IPv6VRRPMsgCon.ReadMessage: %v", err)
+		return nil, NetErr{fmt.Errorf("IPv6VRRPMsgCon.ReadMessage: %v", err)}
 	}
 	// 检查 TTL 应该为 255 (see RFC5798
 	if cm.HopLimit != 255 {

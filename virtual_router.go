@@ -291,8 +291,15 @@ func (r *VirtualRouter) fetchVRRPDaemon() {
 		}
 		packet, err := r.vrrpConn.ReadMessage()
 		if err != nil {
-			logg.Printf("ERROR receive vrrp message: %v, fetch message will be stop", err)
-			return
+			// 由于网络原因，接收 VRRP Advertisement 消息失败，停止接收 VRRP Advertisement 消息
+			if _, ok := err.(NetErr); ok {
+				logg.Printf("ERROR receive vrrp message: %v, fetch message will be stop", err)
+				return
+			} else {
+				//logg.Printf("ERROR receive err format vrrp message: %v", err)
+				// 由于消息格式错误，忽略该消息
+				continue
+			}
 		}
 		//logg.Printf("VRID [%d] received VRRP packet: \n%s\n\n", r.vrID, packet.String())
 		if r.vrID != packet.GetVirtualRouterID() {
